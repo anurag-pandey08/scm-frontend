@@ -76,10 +76,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mt-auto border-t px-4 py-3 text-xs text-muted-foreground">
           <p className="font-medium text-foreground">Booking office</p>
           <p className="mt-0.5 leading-relaxed">Odhav, Ahmedabad-382415</p>
+          <div className="flex flex-wrap gap-x-3">
           <p className="mt-1.5 flex items-center gap-1.5">
             <PhoneIcon className="size-3" />
             {COMPANY.phones[0]}
           </p>
+          <p className="mt-1.5 flex items-center gap-1.5">
+            <PhoneIcon className="size-3" />
+            {COMPANY.phones[1]}
+          </p>
+          <p className="mt-1.5 flex items-center gap-1.5">
+            <PhoneIcon className="size-3" />
+            {COMPANY.phones[2]}
+          </p>
+          </div>
         </div>
       </aside>
 

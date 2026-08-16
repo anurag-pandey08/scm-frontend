@@ -310,7 +310,7 @@ export function InvoiceRegister() {
                     </TableCell>
                     <TableCell>
                       
-                      {/* <DropdownMenu>
+                      <DropdownMenu>
                         <DropdownMenuTrigger
                           render={<Button variant="ghost" size="icon-sm" />}
                           aria-label={`Actions for bill ${invoice.billNo}`}
@@ -335,7 +335,7 @@ export function InvoiceRegister() {
                             Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>
-                      </DropdownMenu> */}
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 )
