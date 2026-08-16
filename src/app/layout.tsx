@@ -4,7 +4,6 @@ import "./globals.css"
 
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
-import { COMPANY } from "@/lib/company"
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -16,9 +15,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
+// The root layout sits above the firm, so it names none — each page under
+// `[company]` titles itself after whichever book it has open.
 export const metadata: Metadata = {
-  title: `${COMPANY.name} — Operations`,
-  description: `Bilty register and consignment analytics for ${COMPANY.name}, ${COMPANY.tagline}.`,
+  title: "Sewak Transport — Operations",
+  description:
+    "Bilty register, freight bills and consignment analytics for the Sewak transport firms.",
 }
 
 export default function RootLayout({

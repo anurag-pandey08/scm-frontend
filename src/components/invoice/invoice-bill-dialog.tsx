@@ -14,16 +14,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import type { Company } from "@/lib/companies"
 import { formatDate, formatINR } from "@/lib/format"
 import { invoiceTotal, type Invoice } from "@/lib/invoice-types"
 
 export function InvoiceBillDialog({
   invoice,
+  company,
   open,
   onOpenChange,
   onEdit,
 }: {
   invoice: Invoice | null
+  company: Company
   open: boolean
   onOpenChange: (open: boolean) => void
   onEdit: (invoice: Invoice) => void
@@ -33,7 +36,7 @@ export function InvoiceBillDialog({
   return (
     <>
       <PrintPortal open={open}>
-        <InvoiceBill invoice={invoice} />
+        <InvoiceBill invoice={invoice} company={company} />
       </PrintPortal>
 
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -53,7 +56,11 @@ export function InvoiceBillDialog({
           </DialogHeader>
 
           <div className="-mx-4 overflow-auto bg-neutral-100 px-4 py-4">
-            <InvoiceBill invoice={invoice} className="shadow-sm" />
+            <InvoiceBill
+              invoice={invoice}
+              company={company}
+              className="shadow-sm"
+            />
           </div>
 
           {invoice.remarks ? (

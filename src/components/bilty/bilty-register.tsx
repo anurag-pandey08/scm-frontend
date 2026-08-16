@@ -53,7 +53,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { nextLrNo, SEED_BILTIES, TODAY } from "@/lib/data"
+import type { Company } from "@/lib/companies"
+import { getSeedBilties, nextLrNo, TODAY } from "@/lib/data"
 import { formatDate, formatINR, formatNumber } from "@/lib/format"
 import {
   BILTY_STATUSES,
@@ -92,8 +93,20 @@ const byNewest = (a: Bilty, b: Bilty) =>
       ? 1
       : -1
 
-export function BiltyRegister() {
-  const [bilties, setBilties] = React.useState<Bilty[]>(SEED_BILTIES)
+export function BiltyRegister({ company }: { company: Company }) {
+  // Defaults for a fresh L.R. come off whichever firm's book is open.
+  const blank = React.useCallback(
+    (lrNo: string) =>
+      emptyBilty(lrNo, TODAY, {
+        from: company.origin,
+        bookingOffice: company.bookingOffices[0],
+      }),
+    [company]
+  )
+
+  const [bilties, setBilties] = React.useState<Bilty[]>(() =>
+    getSeedBilties(company.slug)
+  )
   const [query, setQuery] = React.useState("")
   const [status, setStatus] = React.useState<StatusFilter>("all")
   const [payment, setPayment] = React.useState<PaymentFilter>("all")
@@ -102,7 +115,7 @@ export function BiltyRegister() {
     open: boolean
     mode: "create" | "edit"
     bilty: Bilty
-  }>({ open: false, mode: "create", bilty: emptyBilty("", TODAY) })
+  }>(() => ({ open: false, mode: "create", bilty: blank("") }))
 
   const [detail, setDetail] = React.useState<Bilty | null>(null)
   const [detailOpen, setDetailOpen] = React.useState(false)
@@ -146,7 +159,7 @@ export function BiltyRegister() {
     setForm({
       open: true,
       mode: "create",
-      bilty: emptyBilty(nextLrNo(bilties), TODAY),
+      bilty: blank(nextLrNo(company.slug, bilties)),
     })
   }
 
@@ -420,12 +433,14 @@ export function BiltyRegister() {
         onOpenChange={(open) => setForm((f) => ({ ...f, open }))}
         mode={form.mode}
         initial={form.bilty}
+        company={company}
         takenLrNos={takenLrNos}
         onSave={handleSave}
       />
 
       <BiltyLrDialog
         bilty={lr}
+        company={company}
         open={lrOpen}
         onOpenChange={setLrOpen}
         onEdit={openEdit}
@@ -433,6 +448,7 @@ export function BiltyRegister() {
 
       <BiltyDetailSheet
         bilty={detail}
+        company={company}
         open={detailOpen}
         onOpenChange={setDetailOpen}
         onEdit={openEdit}

@@ -52,9 +52,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import type { Company } from "@/lib/companies"
 import { TODAY } from "@/lib/data"
 import { formatDate, formatINR } from "@/lib/format"
-import { SEED_INVOICES, nextBillNo } from "@/lib/invoice-data"
+import { getSeedInvoices, nextBillNo } from "@/lib/invoice-data"
 import {
   INVOICE_STATUSES,
   billedChallans,
@@ -88,8 +89,10 @@ const byNewest = (a: Invoice, b: Invoice) =>
       ? 1
       : -1
 
-export function InvoiceRegister() {
-  const [invoices, setInvoices] = React.useState<Invoice[]>(SEED_INVOICES)
+export function InvoiceRegister({ company }: { company: Company }) {
+  const [invoices, setInvoices] = React.useState<Invoice[]>(() =>
+    getSeedInvoices(company.slug)
+  )
   const [query, setQuery] = React.useState("")
   const [status, setStatus] = React.useState<StatusFilter>("all")
 
@@ -97,7 +100,11 @@ export function InvoiceRegister() {
     open: boolean
     mode: "create" | "edit"
     invoice: Invoice
-  }>({ open: false, mode: "create", invoice: emptyInvoice("", TODAY) })
+  }>(() => ({
+    open: false,
+    mode: "create",
+    invoice: emptyInvoice("", TODAY, company.origin),
+  }))
 
   const [bill, setBill] = React.useState<Invoice | null>(null)
   const [billOpen, setBillOpen] = React.useState(false)
@@ -136,7 +143,11 @@ export function InvoiceRegister() {
     setForm({
       open: true,
       mode: "create",
-      invoice: emptyInvoice(nextBillNo(invoices), TODAY),
+      invoice: emptyInvoice(
+        nextBillNo(company.slug, invoices),
+        TODAY,
+        company.origin
+      ),
     })
   }
 
@@ -379,6 +390,7 @@ export function InvoiceRegister() {
 
       <InvoiceBillDialog
         invoice={bill}
+        company={company}
         open={billOpen}
         onOpenChange={setBillOpen}
         onEdit={openEdit}

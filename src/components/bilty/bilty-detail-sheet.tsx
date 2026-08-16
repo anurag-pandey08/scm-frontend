@@ -13,7 +13,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { COMPANY } from "@/lib/company"
+import type { Company } from "@/lib/companies"
 import { formatDate, formatINR, formatNumber, formatWeight } from "@/lib/format"
 import { balanceDue, grossTotal, type Bilty } from "@/lib/types"
 
@@ -45,11 +45,13 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 
 export function BiltyDetailSheet({
   bilty,
+  company,
   open,
   onOpenChange,
   onEdit,
 }: {
   bilty: Bilty | null
+  company: Company
   open: boolean
   onOpenChange: (open: boolean) => void
   onEdit: (bilty: Bilty) => void
@@ -177,15 +179,15 @@ export function BiltyDetailSheet({
           <Separator />
 
           <div className="text-xs leading-relaxed text-muted-foreground">
-            <p className="font-medium text-foreground">{COMPANY.name}</p>
-            <p>{COMPANY.address}</p>
+            <p className="font-medium text-foreground">{company.name}</p>
+            <p>{company.address}</p>
             <p className="mt-1">
-              PAN {COMPANY.pan} · {COMPANY.bank.name} A/C{" "}
-              {COMPANY.bank.accountNo} · IFSC {COMPANY.bank.ifsc}
+              PAN {company.pan} · {company.bank.name} A/C{" "}
+              {company.bank.accountNo} · IFSC {company.bank.ifsc}
             </p>
             <p className="mt-1">
               Booked at {bilty.bookingOffice}. Not responsible for breakage or
-              leakage. {COMPANY.jurisdiction}.
+              leakage. {company.jurisdiction}.
             </p>
           </div>
         </div>

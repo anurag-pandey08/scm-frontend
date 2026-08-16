@@ -102,13 +102,18 @@ export function emptyLine(kind: LineKind = "Freight"): InvoiceLine {
   }
 }
 
-export function emptyInvoice(billNo: string, billDate: string): Invoice {
+/** A blank bill. `from` is the booking firm's own station, so it is passed in. */
+export function emptyInvoice(
+  billNo: string,
+  billDate: string,
+  from: string
+): Invoice {
   return {
     id: "",
     billNo,
     billDate,
     party: { name: "", address: "", gstNo: "" },
-    from: "Ahmedabad",
+    from,
     to: "",
     partyInvoiceNo: "",
     lines: [{ ...emptyLine("Freight"), date: billDate }],
