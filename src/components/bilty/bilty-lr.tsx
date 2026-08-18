@@ -1,4 +1,4 @@
-import { COMPANY } from "@/lib/company"
+import type { Company } from "@/lib/companies"
 import { formatDateNumeric, formatNumber } from "@/lib/format"
 import { grossTotal, type Bilty } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -66,10 +66,13 @@ function Party({
 
 export function BiltyLr({
   bilty,
+  company,
   copy = "Consignee Copy",
   className,
 }: {
   bilty: Bilty
+  /** Whose book this L.R. came out of — it fills the whole letterhead. */
+  company: Company
   /** The book is carbon-copied — each copy is marked for whoever keeps it. */
   copy?: string
   className?: string
@@ -108,7 +111,7 @@ export function BiltyLr({
               rule
             )}
           >
-            <p>Subject to Ahmedabad Jurisdiction</p>
+            <p>{company.jurisdiction}</p>
             <p className="text-[9px] font-bold uppercase">At {bilty.risk}</p>
           </div>
 
@@ -119,27 +122,27 @@ export function BiltyLr({
                 className="grid size-9 shrink-0 place-items-center rounded-full border-2 text-[11px] font-bold"
                 style={{ borderColor: RED, color: RED }}
               >
-                SCM
+                {company.monogram}
               </span>
               <div>
                 <p
                   className="text-xl font-extrabold tracking-tight uppercase"
                   style={{ color: RED }}
                 >
-                  {COMPANY.name}
+                  {company.name}
                 </p>
                 <p className="text-[9px] font-bold uppercase">
-                  Transport Contractors &amp; Fleet Owner
+                  {company.lrTagline}
                 </p>
               </div>
             </div>
-            <p className="mt-1 text-[8px]">{COMPANY.address}</p>
-            <p className="text-[8px]">E-mail : {COMPANY.emails.lr}</p>
+            <p className="mt-1 text-[8px]">{company.address}</p>
+            <p className="text-[8px]">E-mail : {company.emails.lr}</p>
           </div>
 
           <div className={cn("w-44 shrink-0 border-l", rule)}>
             <div className={cn("border-b p-1 text-[8.5px] font-semibold", rule)}>
-              {COMPANY.phones.map((phone) => (
+              {company.phones.map((phone) => (
                 <p key={phone}>M. : {phone}</p>
               ))}
             </div>
@@ -388,13 +391,13 @@ export function BiltyLr({
         <div className={cn("flex border-t-2 text-[8.5px]", rule)}>
           <div className={cn("flex-1 border-r p-1", rule)}>
             <p className="font-semibold">Bank Detail :</p>
-            <p className="font-bold">{COMPANY.bank.name}</p>
-            <p>{COMPANY.bank.branch}</p>
+            <p className="font-bold">{company.bank.name}</p>
+            <p>{company.bank.branch}</p>
             <p>
-              A/C. No. : {COMPANY.bank.accountNo} &middot; IFSC Code :{" "}
-              {COMPANY.bank.ifsc}
+              A/C. No. : {company.bank.accountNo} &middot; IFSC Code :{" "}
+              {company.bank.ifsc}
             </p>
-            <p className="mt-0.5 font-bold">P.A.N. : {COMPANY.pan}</p>
+            <p className="mt-0.5 font-bold">P.A.N. : {company.pan}</p>
           </div>
           <div className="flex-1 p-1">
             <p>Re-booking through central office only.</p>
@@ -418,7 +421,7 @@ export function BiltyLr({
             {copy}
           </p>
           <p className="font-bold uppercase" style={{ color: RED }}>
-            For, {COMPANY.name}
+            For, {company.name}
           </p>
         </div>
       </div>

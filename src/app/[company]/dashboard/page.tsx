@@ -16,17 +16,29 @@ import {
   WINDOW_DAYS,
   WINDOW_START,
 } from "@/lib/analytics"
+import { companyFromParams, type CompanyParams } from "@/lib/company-route"
 import { TODAY } from "@/lib/data"
 import { formatDate, formatINR, formatNumber } from "@/lib/format"
 
-export const metadata: Metadata = {
-  title: "Dashboard — Sewak Cargo Movers",
+export async function generateMetadata({
+  params,
+}: {
+  params: CompanyParams
+}): Promise<Metadata> {
+  const company = await companyFromParams(params)
+  return { title: `Dashboard — ${company.name}` }
 }
 
-export default function DashboardPage() {
-  const kpis = getKpis()
-  const monthly = getMonthlyFreight()
-  const { changePct } = getMonthOverMonth()
+export default async function DashboardPage({
+  params,
+}: {
+  params: CompanyParams
+}) {
+  const { slug } = await companyFromParams(params)
+
+  const kpis = getKpis(slug)
+  const monthly = getMonthlyFreight(slug)
+  const { changePct } = getMonthOverMonth(slug)
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -77,13 +89,13 @@ export default function DashboardPage() {
         <div className="lg:col-span-2">
           <FreightTrendCard data={monthly} changePct={changePct} />
         </div>
-        <PaymentSplitCard slices={getPaymentSplit()} />
+        <PaymentSplitCard slices={getPaymentSplit(slug)} />
       </section>
 
       <section className="grid gap-4 *:min-w-0 lg:grid-cols-3">
-        <TopRoutesCard routes={getTopRoutes()} />
+        <TopRoutesCard routes={getTopRoutes(slug)} />
         <div className="lg:col-span-2">
-          <RecentBiltiesCard bilties={getRecentBilties()} />
+          <RecentBiltiesCard bilties={getRecentBilties(slug)} />
         </div>
       </section>
     </div>

@@ -1,5 +1,12 @@
-import { MONTHLY_FREIGHT, SEED_BILTIES, TODAY } from "./data"
+import type { CompanySlug } from "./companies"
+import { getMonthlyFreight as monthlyFreightFor, getSeedBilties, TODAY } from "./data"
 import { grossTotal, balanceDue, type Bilty, type PaymentType } from "./types"
+
+/**
+ * Every figure on the dashboard is scoped to one firm. Nothing here reaches for
+ * a register directly — the company is always named by the caller, so the two
+ * firms' books can never be added together by accident.
+ */
 
 /** Inclusive window of the `days` days ending on the anchor date. */
 function windowStart(days: number): string {
@@ -14,8 +21,11 @@ export const WINDOW_START = windowStart(WINDOW_DAYS)
 const inWindow = (b: Bilty) => b.lrDate >= WINDOW_START && b.lrDate <= TODAY
 const isLive = (b: Bilty) => b.status !== "Cancelled"
 
-const recent = SEED_BILTIES.filter(inWindow)
-const live = recent.filter(isLive)
+/** The firm's bilties inside the window, and those of them still standing. */
+function books(company: CompanySlug) {
+  const recent = getSeedBilties(company).filter(inWindow)
+  return { recent, live: recent.filter(isLive) }
+}
 
 export interface Kpis {
   biltiesBooked: number
@@ -29,7 +39,8 @@ export interface Kpis {
   awaitingDispatch: number
 }
 
-export function getKpis(): Kpis {
+export function getKpis(company: CompanySlug): Kpis {
+  const { recent, live } = books(company)
   const lrNumbers = recent.map((b) => Number(b.lrNo)).sort((a, b) => a - b)
   const receivables = live.filter(
     (b) => b.paymentType === "To Pay" || b.paymentType === "TBB"
@@ -60,8 +71,8 @@ export interface MonthPoint {
   freight: number
 }
 
-export function getMonthlyFreight(): MonthPoint[] {
-  return MONTHLY_FREIGHT.map(({ month, freight }) => {
+export function getMonthlyFreight(company: CompanySlug): MonthPoint[] {
+  return monthlyFreightFor(company).map(({ month, freight }) => {
     const d = new Date(`${month}-01T00:00:00`)
     return {
       month,
@@ -78,8 +89,11 @@ export function getMonthlyFreight(): MonthPoint[] {
 }
 
 /** Change in the most recent complete month against the one before it. */
-export function getMonthOverMonth(): { latest: MonthPoint; changePct: number } {
-  const points = getMonthlyFreight()
+export function getMonthOverMonth(company: CompanySlug): {
+  latest: MonthPoint
+  changePct: number
+} {
+  const points = getMonthlyFreight(company)
   const latest = points[points.length - 1]
   const previous = points[points.length - 2]
   return {
@@ -95,7 +109,8 @@ export interface PaymentSlice {
   share: number
 }
 
-export function getPaymentSplit(): PaymentSlice[] {
+export function getPaymentSplit(company: CompanySlug): PaymentSlice[] {
+  const { live } = books(company)
   const total = live.reduce((sum, b) => sum + grossTotal(b.charges), 0)
   const order: PaymentType[] = ["Paid", "To Pay", "TBB"]
 
@@ -118,10 +133,10 @@ export interface RoutePoint {
   freight: number
 }
 
-export function getTopRoutes(limit = 6): RoutePoint[] {
+export function getTopRoutes(company: CompanySlug, limit = 6): RoutePoint[] {
   const byDestination = new Map<string, RoutePoint>()
 
-  for (const b of live) {
+  for (const b of books(company).live) {
     const existing = byDestination.get(b.to)
     if (existing) {
       existing.trips += 1
@@ -141,6 +156,6 @@ export function getTopRoutes(limit = 6): RoutePoint[] {
     .slice(0, limit)
 }
 
-export function getRecentBilties(limit = 6): Bilty[] {
-  return SEED_BILTIES.slice(0, limit)
+export function getRecentBilties(company: CompanySlug, limit = 6): Bilty[] {
+  return getSeedBilties(company).slice(0, limit)
 }

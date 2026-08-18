@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { BOOKING_OFFICES, STATIONS } from "@/lib/company"
+import { STATIONS, type Company } from "@/lib/companies"
 import { formatINR } from "@/lib/format"
 import {
   BILTY_STATUSES,
@@ -126,6 +126,7 @@ export function BiltyFormDialog({
   onOpenChange,
   mode,
   initial,
+  company,
   takenLrNos,
   onSave,
 }: {
@@ -133,6 +134,8 @@ export function BiltyFormDialog({
   onOpenChange: (open: boolean) => void
   mode: "create" | "edit"
   initial: Bilty
+  /** Whose book is being written in — it owns the booking offices. */
+  company: Company
   /** L.R. numbers already in the book, excluding the record being edited. */
   takenLrNos: string[]
   onSave: (bilty: Bilty) => void
@@ -238,7 +241,7 @@ export function BiltyFormDialog({
                   <SelectValue placeholder="Select office" />
                 </SelectTrigger>
                 <SelectContent>
-                  {BOOKING_OFFICES.map((office) => (
+                  {company.bookingOffices.map((office) => (
                     <SelectItem key={office} value={office}>
                       {office}
                     </SelectItem>

@@ -87,16 +87,25 @@ export function balanceDue(c: BiltyCharges): number {
   return grossTotal(c) - c.advance
 }
 
-export function emptyBilty(lrNo: string, lrDate: string): Bilty {
+/**
+ * A blank L.R. The two defaults the form cannot guess — where the firm books
+ * from, and which of its offices — are passed in rather than baked in, because
+ * they belong to whichever firm's book is open.
+ */
+export function emptyBilty(
+  lrNo: string,
+  lrDate: string,
+  defaults: { from: string; bookingOffice: string }
+): Bilty {
   return {
     id: "",
     lrNo,
     lrDate,
     lorryNo: "",
-    from: "Ahmedabad",
+    from: defaults.from,
     to: "",
     deliveryAt: "",
-    bookingOffice: "Odhav, Ahmedabad",
+    bookingOffice: defaults.bookingOffice,
     consignor: { name: "", address: "", gstNo: "" },
     consignee: { name: "", address: "", gstNo: "" },
     packages: 0,

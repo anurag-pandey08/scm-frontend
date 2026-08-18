@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type { Company } from "@/lib/companies"
 import { formatDate, formatINR } from "@/lib/format"
 import { grossTotal, type Bilty } from "@/lib/types"
 
@@ -35,11 +36,13 @@ const COPIES = [
 
 export function BiltyLrDialog({
   bilty,
+  company,
   open,
   onOpenChange,
   onEdit,
 }: {
   bilty: Bilty | null
+  company: Company
   open: boolean
   onOpenChange: (open: boolean) => void
   onEdit: (bilty: Bilty) => void
@@ -51,7 +54,7 @@ export function BiltyLrDialog({
   return (
     <>
       <PrintPortal open={open}>
-        <BiltyLr bilty={bilty} copy={copy} />
+        <BiltyLr bilty={bilty} company={company} copy={copy} />
       </PrintPortal>
 
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,7 +71,12 @@ export function BiltyLrDialog({
           </DialogHeader>
 
           <div className="-mx-4 overflow-auto bg-neutral-100 px-4 py-4">
-            <BiltyLr bilty={bilty} copy={copy} className="shadow-sm" />
+            <BiltyLr
+              bilty={bilty}
+              company={company}
+              copy={copy}
+              className="shadow-sm"
+            />
           </div>
 
           <DialogFooter className="sm:items-center sm:justify-between">

@@ -1,6 +1,6 @@
 import { TruckIcon } from "lucide-react"
 
-import { COMPANY } from "@/lib/company"
+import type { Company } from "@/lib/companies"
 import { amountInWords, formatNumber, formatTonnes } from "@/lib/format"
 import { invoiceTotal, type Invoice, type InvoiceLine } from "@/lib/invoice-types"
 import { cn } from "@/lib/utils"
@@ -65,9 +65,12 @@ function BlankRow() {
 
 export function InvoiceBill({
   invoice,
+  company,
   className,
 }: {
   invoice: Invoice
+  /** Whose book this bill came out of — it fills the whole letterhead. */
+  company: Company
   className?: string
 }) {
   const total = invoiceTotal(invoice)
@@ -91,14 +94,14 @@ export function InvoiceBill({
           >
             <TruckIcon className="size-6" />
           </span>
-          <p className="font-bold">M : {COMPANY.phones.slice(0, 2).join(" , ")}</p>
+          <p className="font-bold">M : {company.phones.slice(0, 2).join(" , ")}</p>
           <p className="text-2xl font-bold tracking-tight text-[#c81e1e] uppercase">
-            {COMPANY.name}
+            {company.name}
           </p>
           <p className="text-[10px] font-bold italic uppercase">
-            Transport Contractors and Fleetowner
+            {company.billTagline}
           </p>
-          <p className="mt-1 font-bold">EMAIL: {COMPANY.emails.bill}</p>
+          <p className="mt-1 font-bold">EMAIL: {company.emails.bill}</p>
         </div>
 
         {/* Party and route */}
@@ -222,14 +225,14 @@ export function InvoiceBill({
                 <dl className="grid grid-cols-[5.5rem_1fr] gap-x-2 font-bold">
                   <dt>Our Bank:</dt>
                   <dd className="uppercase">
-                    {COMPANY.bank.name} — {COMPANY.name}
+                    {company.bank.name} — {company.name}
                   </dd>
                   <dt>Branch:</dt>
-                  <dd className="uppercase">{COMPANY.bank.branch}</dd>
+                  <dd className="uppercase">{company.bank.branch}</dd>
                   <dt>A/c No.:</dt>
-                  <dd className="tabular-nums">{COMPANY.bank.accountNo}</dd>
+                  <dd className="tabular-nums">{company.bank.accountNo}</dd>
                   <dt>IFSC Code:</dt>
-                  <dd className="tabular-nums">{COMPANY.bank.ifsc}</dd>
+                  <dd className="tabular-nums">{company.bank.ifsc}</dd>
                 </dl>
               </td>
               <td className={cn(cell, "h-8")} />
@@ -252,11 +255,11 @@ export function InvoiceBill({
         </div>
 
         <div className="flex items-end justify-between gap-3 border-t border-black px-2 py-1.5">
-          <p className="text-[10px] font-bold">PAN No: {COMPANY.pan}</p>
+          <p className="text-[10px] font-bold">PAN No: {company.pan}</p>
           <p className="font-bold">E.&amp; O.E.</p>
           <div className="text-right">
-            <p className="text-[10px]">For, {COMPANY.name}</p>
-            <p className="font-bold">{COMPANY.jurisdiction}</p>
+            <p className="text-[10px]">For, {company.name}</p>
+            <p className="font-bold">{company.jurisdiction}</p>
           </div>
         </div>
       </div>
