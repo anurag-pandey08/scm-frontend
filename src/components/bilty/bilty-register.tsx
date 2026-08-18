@@ -212,8 +212,7 @@ export function BiltyRegister({ company }: { company: Company }) {
     })
   }
 
-  const filtersApplied =
-    query !== "" || status !== "all" || payment !== "all"
+  const filtersApplied = query !== "" || status !== "all" || payment !== "all"
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -372,9 +371,7 @@ export function BiltyRegister({ company }: { company: Company }) {
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger
-                        render={
-                          <Button variant="ghost" size="icon-sm" />
-                        }
+                        render={<Button variant="ghost" size="icon-sm" />}
                         aria-label={`Actions for bilty ${bilty.lrNo}`}
                       >
                         <EllipsisIcon />

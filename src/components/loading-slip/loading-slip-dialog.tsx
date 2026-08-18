@@ -47,8 +47,8 @@ export function LoadingSlipDialog({
               <LoadingSlipStatusBadge status={slip.status} />
             </DialogTitle>
             <DialogDescription>
-              {formatDate(slip.slipDate)} · {slip.party || "party not entered"} ·{" "}
-              {slip.vehicleNo || "no lorry"} · {slip.from} → {slip.to}
+              {formatDate(slip.slipDate)} · {slip.party || "party not entered"}{" "}
+              · {slip.vehicleNo || "no lorry"} · {slip.from} → {slip.to}
             </DialogDescription>
           </DialogHeader>
 

@@ -12,11 +12,7 @@ export async function generateMetadata({
   return { title: `Bilty Register — ${company.name}` }
 }
 
-export default async function BiltyPage({
-  params,
-}: {
-  params: CompanyParams
-}) {
+export default async function BiltyPage({ params }: { params: CompanyParams }) {
   const company = await companyFromParams(params)
 
   // Keyed on the firm so switching books remounts the register rather than

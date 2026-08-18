@@ -124,7 +124,8 @@ export function InvoiceRegister({ company }: { company: Company }) {
     () =>
       visible.reduce(
         (acc, invoice) => {
-          if (invoice.status !== "Cancelled") acc.billed += invoiceTotal(invoice)
+          if (invoice.status !== "Cancelled")
+            acc.billed += invoiceTotal(invoice)
           acc.outstanding += outstanding(invoice)
           return acc
         },
@@ -134,8 +135,7 @@ export function InvoiceRegister({ company }: { company: Company }) {
   )
 
   const takenBillNos = React.useMemo(
-    () =>
-      invoices.filter((i) => i.id !== form.invoice.id).map((i) => i.billNo),
+    () => invoices.filter((i) => i.id !== form.invoice.id).map((i) => i.billNo),
     [invoices, form.invoice.id]
   )
 
@@ -320,7 +320,6 @@ export function InvoiceRegister({ company }: { company: Company }) {
                       {formatINR(invoiceTotal(invoice))}
                     </TableCell>
                     <TableCell>
-                      
                       <DropdownMenu>
                         <DropdownMenuTrigger
                           render={<Button variant="ghost" size="icon-sm" />}

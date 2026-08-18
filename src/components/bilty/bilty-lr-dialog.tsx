@@ -82,7 +82,10 @@ export function BiltyLrDialog({
           <DialogFooter className="sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <Select value={copy} onValueChange={(v) => v && setCopy(v)}>
-                <SelectTrigger className="w-40" aria-label="Which copy to print">
+                <SelectTrigger
+                  className="w-40"
+                  aria-label="Which copy to print"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

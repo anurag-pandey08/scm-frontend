@@ -35,6 +35,11 @@ type BillSpec = {
 // Sewak Cargo Movers
 // ---------------------------------------------------------------------------
 
+/**
+ * Kept off Prettier: one spec is one row of the book, written on one line so
+ * the seed reads as a table rather than a wall of object literals.
+ */
+// prettier-ignore
 const SCM_SPECS: BillSpec[] = [
   { bill: 588, date: "2026-07-20", lrs: [3010], partyInvoiceNo: "1184", status: "Paid", paidOn: "2026-07-29" },
   { bill: 589, date: "2026-07-21", lrs: [3011], partyInvoiceNo: "742", charges: [{ particulars: "Detention — 2 days at Narela", amount: 3000 }], status: "Paid", paidOn: "2026-08-03" },
@@ -98,6 +103,11 @@ const INDIANO_CHROME: Invoice = {
 // Sewak Union Roadways
 // ---------------------------------------------------------------------------
 
+/**
+ * Kept off Prettier: one spec is one row of the book, written on one line so
+ * the seed reads as a table rather than a wall of object literals.
+ */
+// prettier-ignore
 const SUR_SPECS: BillSpec[] = [
   { bill: 214, date: "2026-07-20", lrs: [7401], partyInvoiceNo: "3312", status: "Paid", paidOn: "2026-07-30" },
   { bill: 215, date: "2026-07-22", lrs: [7405], partyInvoiceNo: "1147", charges: [{ particulars: "Detention — 1 day at Madri", amount: 2500 }], status: "Paid", paidOn: "2026-08-04" },

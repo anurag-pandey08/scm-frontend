@@ -141,7 +141,9 @@ export function BiltyLr({
           </div>
 
           <div className={cn("w-44 shrink-0 border-l", rule)}>
-            <div className={cn("border-b p-1 text-[8.5px] font-semibold", rule)}>
+            <div
+              className={cn("border-b p-1 text-[8.5px] font-semibold", rule)}
+            >
               {company.phones.map((phone) => (
                 <p key={phone}>M. : {phone}</p>
               ))}
@@ -185,25 +187,25 @@ export function BiltyLr({
               <thead>
                 <tr>
                   <th
-                    className={cn("border-b border-r p-1 font-semibold", rule)}
+                    className={cn("border-r border-b p-1 font-semibold", rule)}
                     rowSpan={2}
                   >
                     Packages
                   </th>
                   <th
-                    className={cn("border-b border-r p-1 font-semibold", rule)}
+                    className={cn("border-r border-b p-1 font-semibold", rule)}
                     rowSpan={2}
                   >
                     Contents as to be contain
                   </th>
                   <th
-                    className={cn("border-b border-r p-1 font-semibold", rule)}
+                    className={cn("border-r border-b p-1 font-semibold", rule)}
                     colSpan={2}
                   >
                     Weight
                   </th>
                   <th
-                    className={cn("border-b border-r p-1 font-semibold", rule)}
+                    className={cn("border-r border-b p-1 font-semibold", rule)}
                     rowSpan={2}
                   >
                     Value
@@ -216,24 +218,30 @@ export function BiltyLr({
                   </th>
                 </tr>
                 <tr>
-                  <th
-                    className={cn("border-b border-r p-1 text-[8px]", rule)}
-                  >
+                  <th className={cn("border-r border-b p-1 text-[8px]", rule)}>
                     Actual Kg. Grm.
                   </th>
-                  <th
-                    className={cn("border-b border-r p-1 text-[8px]", rule)}
-                  >
+                  <th className={cn("border-r border-b p-1 text-[8px]", rule)}>
                     Charged Kg. Grm.
                   </th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td className={cn("h-12 border-r p-1 align-top font-bold", rule)}>
+                  <td
+                    className={cn(
+                      "h-12 border-r p-1 align-top font-bold",
+                      rule
+                    )}
+                  >
                     {formatNumber(bilty.packages)}
                   </td>
-                  <td className={cn("border-r p-1 text-left align-top font-bold", rule)}>
+                  <td
+                    className={cn(
+                      "border-r p-1 text-left align-top font-bold",
+                      rule
+                    )}
+                  >
                     {bilty.contents}
                   </td>
                   <td className={cn("border-r p-1 align-top font-bold", rule)}>
@@ -245,7 +253,9 @@ export function BiltyLr({
                   <td className={cn("border-r p-1 align-top font-bold", rule)}>
                     {money(bilty.declaredValue)}
                   </td>
-                  <td className="p-1 align-top font-bold">{money(bilty.rate)}</td>
+                  <td className="p-1 align-top font-bold">
+                    {money(bilty.rate)}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -299,7 +309,10 @@ export function BiltyLr({
               </colgroup>
               <thead>
                 <tr>
-                  <th className={cn("border-b border-r p-1", rule)} rowSpan={2} />
+                  <th
+                    className={cn("border-r border-b p-1", rule)}
+                    rowSpan={2}
+                  />
                   <th
                     className={cn("border-b border-l p-1 font-semibold", rule)}
                     colSpan={2}
@@ -308,10 +321,14 @@ export function BiltyLr({
                   </th>
                 </tr>
                 <tr>
-                  <th className={cn("border-b border-l p-1 font-semibold", rule)}>
+                  <th
+                    className={cn("border-b border-l p-1 font-semibold", rule)}
+                  >
                     Paid
                   </th>
-                  <th className={cn("border-b border-l p-1 font-semibold", rule)}>
+                  <th
+                    className={cn("border-b border-l p-1 font-semibold", rule)}
+                  >
                     To Pay
                   </th>
                 </tr>
@@ -321,7 +338,7 @@ export function BiltyLr({
                   <tr key={label}>
                     <th
                       className={cn(
-                        "border-b border-r p-1 text-left font-semibold",
+                        "border-r border-b p-1 text-left font-semibold",
                         rule
                       )}
                     >
@@ -348,7 +365,7 @@ export function BiltyLr({
                 <tr>
                   <th
                     className={cn(
-                      "border-b border-r p-1 text-left font-bold",
+                      "border-r border-b p-1 text-left font-bold",
                       rule
                     )}
                   >

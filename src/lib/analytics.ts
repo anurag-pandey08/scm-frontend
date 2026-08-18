@@ -1,5 +1,9 @@
 import type { CompanySlug } from "./companies"
-import { getMonthlyFreight as monthlyFreightFor, getSeedBilties, TODAY } from "./data"
+import {
+  getMonthlyFreight as monthlyFreightFor,
+  getSeedBilties,
+  TODAY,
+} from "./data"
 import { grossTotal, balanceDue, type Bilty, type PaymentType } from "./types"
 
 /**

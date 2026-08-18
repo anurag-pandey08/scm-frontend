@@ -17,13 +17,7 @@ import type { Company } from "@/lib/companies"
 import { formatDate, formatINR, formatNumber, formatWeight } from "@/lib/format"
 import { balanceDue, grossTotal, type Bilty } from "@/lib/types"
 
-function Row({
-  label,
-  value,
-}: {
-  label: string
-  value: React.ReactNode
-}) {
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[7.5rem_1fr] gap-3 py-1">
       <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -32,7 +26,13 @@ function Row({
   )
 }
 
-function Block({ title, children }: { title: string; children: React.ReactNode }) {
+function Block({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}) {
   return (
     <section>
       <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
@@ -156,7 +156,10 @@ export function BiltyDetailSheet({
               <>
                 <Row label="Company" value={bilty.insurance.company} />
                 <Row label="Policy No." value={bilty.insurance.policyNo} />
-                <Row label="Policy date" value={formatDate(bilty.insurance.date)} />
+                <Row
+                  label="Policy date"
+                  value={formatDate(bilty.insurance.date)}
+                />
                 <Row label="Amount" value={formatINR(bilty.insurance.amount)} />
               </>
             ) : (

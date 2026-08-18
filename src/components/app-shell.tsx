@@ -1,7 +1,7 @@
-"use client";
+"use client"
 
-import Link from "next/link";
-import { useSelectedLayoutSegments } from "next/navigation";
+import Link from "next/link"
+import { useSelectedLayoutSegments } from "next/navigation"
 import {
   ClipboardListIcon,
   LayoutDashboardIcon,
@@ -9,12 +9,12 @@ import {
   ReceiptIndianRupeeIcon,
   ScrollTextIcon,
   TriangleAlertIcon,
-} from "lucide-react";
+} from "lucide-react"
 
-import { CompanySwitcher } from "@/components/company-switcher";
-import { ThemeToggle } from "@/components/theme-toggle";
-import type { Company } from "@/lib/companies";
-import { cn } from "@/lib/utils";
+import { CompanySwitcher } from "@/components/company-switcher"
+import { ThemeToggle } from "@/components/theme-toggle"
+import type { Company } from "@/lib/companies"
+import { cn } from "@/lib/utils"
 
 /**
  * Hrefs are relative to the firm — every screen lives under one. The order is
@@ -49,18 +49,18 @@ const NAV = [
     short: "Slips",
     icon: ClipboardListIcon,
   },
-];
+]
 
 export function AppShell({
   company,
   children,
 }: {
-  company: Company;
-  children: React.ReactNode;
+  company: Company
+  children: React.ReactNode
 }) {
   // Read below the [company] layout, so the nav highlights the same screen
   // whichever firm's books are open.
-  const [current] = useSelectedLayoutSegments();
+  const [current] = useSelectedLayoutSegments()
 
   return (
     // Printing is always printing a document the app is holding — a bill, an
@@ -73,7 +73,7 @@ export function AppShell({
 
         <nav className="flex flex-col gap-1 px-2 py-2">
           {NAV.map((item) => {
-            const active = item.segment === current;
+            const active = item.segment === current
             return (
               <Link
                 key={item.segment}
@@ -83,12 +83,13 @@ export function AppShell({
                   "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-                )}>
+                    : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+                )}
+              >
                 <item.icon className="size-4" />
                 {item.label}
               </Link>
-            );
+            )
           })}
         </nav>
 
@@ -133,8 +134,9 @@ export function AppShell({
                   "rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
                   item.segment === current
                     ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}>
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
                 {item.short}
               </Link>
             ))}
@@ -150,5 +152,5 @@ export function AppShell({
         <main className="flex-1 px-4 py-5 lg:px-6 lg:py-6">{children}</main>
       </div>
     </div>
-  );
+  )
 }

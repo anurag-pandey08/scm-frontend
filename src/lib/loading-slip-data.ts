@@ -37,6 +37,11 @@ type SlipSpec = {
 // Sewak Cargo Movers
 // ---------------------------------------------------------------------------
 
+/**
+ * Kept off Prettier: one spec is one row of the book, written on one line so
+ * the seed reads as a table rather than a wall of object literals.
+ */
+// prettier-ignore
 const SCM_SPECS: SlipSpec[] = [
   { no: 2381, date: "2026-07-22", party: "Gaal Cargo Movers", vehicle: "GJ-01-BT-4471", to: "Mumbai", rate: 1400, weight: 9, freight: 12600, advance: 4000, bed: [22, 7.5, 7], status: "Loaded" },
   { no: 2382, date: "2026-07-25", party: "Shreeji Polymers Pvt. Ltd.", vehicle: "GJ-18-Z-3345", to: "Delhi", rate: 3100, weight: 8.5, freight: 26350, advance: 10000, detention: 1500, bed: [32, 8, 7], status: "Loaded", remarks: "Two days at Narela allowed. Detention agreed at the loading point." },
@@ -52,6 +57,11 @@ const SCM_SPECS: SlipSpec[] = [
 // Sewak Union Roadways
 // ---------------------------------------------------------------------------
 
+/**
+ * Kept off Prettier: one spec is one row of the book, written on one line so
+ * the seed reads as a table rather than a wall of object literals.
+ */
+// prettier-ignore
 const SUR_SPECS: SlipSpec[] = [
   { no: 1142, date: "2026-07-23", party: "Vishwa Forgings Pvt. Ltd.", vehicle: "GJ-01-EX-2214", to: "Delhi", rate: 3300, weight: 5.7, freight: 18810, advance: 6000, bed: [32, 8, 7], status: "Loaded" },
   { no: 1143, date: "2026-07-26", party: "Girnar Marble & Granite", vehicle: "RJ-19-GA-4402", to: "Udaipur", rate: 2250, weight: 12, freight: 27000, advance: 9000, detention: 2500, bed: [22, 7.5, 7], status: "Loaded", remarks: "One day held at Madri. Detention allowed at the loading point." },
@@ -126,10 +136,7 @@ export function getSeedLoadingSlips(company: CompanySlug): LoadingSlip[] {
 }
 
 /** Next number off the firm's slip book. */
-export function nextSlipNo(
-  company: CompanySlug,
-  slips: LoadingSlip[]
-): string {
+export function nextSlipNo(company: CompanySlug, slips: LoadingSlip[]): string {
   const highest = slips.reduce(
     (max, s) => Math.max(max, Number(s.slipNo) || 0),
     SLIP_FLOOR[company]
