@@ -1,0 +1,15 @@
+# Every text file is stored and checked out with LF, on every platform.
+#
+# Without this, core.autocrlf=true gives Windows clones CRLF working copies.
+# Prettier writes LF, so it would then report every file as unformatted, and
+# the pre-commit hook would rewrite whatever it touched — churn in each commit
+# that has nothing to do with the change being made.
+* text=auto eol=lf
+
+# Binaries are Git's to detect, but naming them keeps that decision explicit
+# for the ones actually in the tree.
+*.ico binary
+*.png binary
+*.jpg binary
+*.woff binary
+*.woff2 binary

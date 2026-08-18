@@ -1,0 +1,12 @@
+# Build output and generated files — nothing here is hand-edited.
+.next/
+out/
+build/
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Lockfiles are npm's to format, not ours.
+package-lock.json
+
+# Husky's own generated shims.
+.husky/_/

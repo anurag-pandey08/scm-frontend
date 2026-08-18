@@ -34,10 +34,7 @@ export function TopRoutesCard({ routes }: { routes: RoutePoint[] }) {
       </CardHeader>
 
       <CardContent>
-        <ChartContainer
-          config={config}
-          className="aspect-auto h-59 w-full"
-        >
+        <ChartContainer config={config} className="aspect-auto h-59 w-full">
           <BarChart
             accessibilityLayer
             layout="vertical"

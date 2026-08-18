@@ -31,5 +31,8 @@ export function PrintPortal({
   )
 
   if (!onClient || !open) return null
-  return createPortal(<div className="print-doc">{children}</div>, document.body)
+  return createPortal(
+    <div className="print-doc">{children}</div>,
+    document.body
+  )
 }

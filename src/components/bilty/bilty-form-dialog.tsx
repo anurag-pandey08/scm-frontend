@@ -201,8 +201,8 @@ export function BiltyFormDialog({
             {mode === "create" ? "New bilty" : `Edit bilty ${initial.lrNo}`}
           </DialogTitle>
           <DialogDescription>
-            Fields follow the printed L.R. book. Goods are carried at owner&rsquo;s
-            risk unless marked otherwise.
+            Fields follow the printed L.R. book. Goods are carried at
+            owner&rsquo;s risk unless marked otherwise.
           </DialogDescription>
         </DialogHeader>
 
@@ -371,7 +371,10 @@ export function BiltyFormDialog({
             </Field>
           </Section>
 
-          <Section title="Goods" note="Said to contain — declared by the consignor">
+          <Section
+            title="Goods"
+            note="Said to contain — declared by the consignor"
+          >
             <Field
               label="Contents"
               htmlFor="contents"

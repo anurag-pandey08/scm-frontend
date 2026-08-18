@@ -19,7 +19,11 @@ export default function NotFound() {
 
       <div className="flex flex-wrap justify-center gap-2">
         {COMPANY_LIST.map((company) => (
-          <Button key={company.slug} variant="outline" render={<Link href={`/${company.slug}/dashboard`} />}>
+          <Button
+            key={company.slug}
+            variant="outline"
+            render={<Link href={`/${company.slug}/dashboard`} />}
+          >
             {company.name}
           </Button>
         ))}

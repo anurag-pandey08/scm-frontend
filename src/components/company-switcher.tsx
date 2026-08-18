@@ -10,11 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  COMPANY_LIST,
-  type Company,
-  type CompanySlug,
-} from "@/lib/companies"
+import { COMPANY_LIST, type Company, type CompanySlug } from "@/lib/companies"
 import { rememberCompany } from "@/lib/remember-company"
 import { cn } from "@/lib/utils"
 

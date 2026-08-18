@@ -1,5 +1,10 @@
 import type { Metadata } from "next"
-import { BanknoteIcon, ScrollTextIcon, TruckIcon, WalletIcon } from "lucide-react"
+import {
+  BanknoteIcon,
+  ScrollTextIcon,
+  TruckIcon,
+  WalletIcon,
+} from "lucide-react"
 
 import { FreightTrendCard } from "@/components/dashboard/freight-trend-card"
 import { PaymentSplitCard } from "@/components/dashboard/payment-split-card"
