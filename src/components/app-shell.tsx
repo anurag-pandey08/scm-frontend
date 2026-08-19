@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { useSelectedLayoutSegments } from "next/navigation"
 import {
+  BookOpenIcon,
+  ClipboardListIcon,
   LayoutDashboardIcon,
   PhoneIcon,
   ReceiptIndianRupeeIcon,
@@ -15,11 +17,56 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import type { Company } from "@/lib/companies"
 import { cn } from "@/lib/utils"
 
-/** Hrefs are relative to the firm — every screen lives under one. */
-const NAV = [
-  { segment: "dashboard", label: "Dashboard", icon: LayoutDashboardIcon },
-  { segment: "bilty", label: "Bilty Register", icon: ScrollTextIcon },
-  { segment: "invoices", label: "Invoices", icon: ReceiptIndianRupeeIcon },
+/**
+ * Hrefs are relative to the firm — every screen lives under one. The order is
+ * the order the paperwork happens in: the lorry is placed on a slip, the goods
+ * go out on an L.R., the party is billed for them.
+ *
+ * `short` is what the mobile bar shows — the full labels do not fit across a
+ * phone, and the header nav has no room to wrap.
+ *
+ * `shared` marks a screen whose data is not the firm's own.
+ */
+const NAV: {
+  segment: string
+  label: string
+  short: string
+  icon: typeof LayoutDashboardIcon
+  shared?: boolean
+}[] = [
+  {
+    segment: "dashboard",
+    label: "Dashboard",
+    short: "Dashboard",
+    icon: LayoutDashboardIcon,
+  },
+  {
+    segment: "bilty",
+    label: "Bilty Register",
+    short: "Bilty",
+    icon: ScrollTextIcon,
+  },
+  {
+    segment: "invoices",
+    label: "Invoices",
+    short: "Invoices",
+    icon: ReceiptIndianRupeeIcon,
+  },
+  {
+    segment: "loading-slips",
+    label: "Loading Slips",
+    short: "Slips",
+    icon: ClipboardListIcon,
+  },
+  // Last, and marked as shared: it is the one screen here that does not belong
+  // to the firm named above it in the sidebar.
+  {
+    segment: "trips",
+    label: "Trip Register",
+    short: "Trips",
+    icon: BookOpenIcon,
+    shared: true,
+  },
 ]
 
 export function AppShell({
@@ -59,6 +106,14 @@ export function AppShell({
               >
                 <item.icon className="size-4" />
                 {item.label}
+                {item.shared ? (
+                  <span
+                    className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    title="Shared by both firms"
+                  >
+                    Both
+                  </span>
+                ) : null}
               </Link>
             )
           })}
@@ -84,9 +139,8 @@ export function AppShell({
             <p className="flex gap-1.5 leading-relaxed">
               <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
               <span>
-                Letterhead details for {company.name} are still to be
-                confirmed — its printed L.R.s and bills are not fit to hand out
-                yet.
+                Letterhead details for {company.name} are still to be confirmed
+                — its printed L.R.s and bills are not fit to hand out yet.
               </span>
             </p>
           )}
@@ -109,7 +163,7 @@ export function AppShell({
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {item.label}
+                {item.short}
               </Link>
             ))}
           </nav>

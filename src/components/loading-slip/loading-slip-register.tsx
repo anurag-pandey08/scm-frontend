@@ -3,19 +3,18 @@
 import * as React from "react"
 import {
   EllipsisIcon,
-  EyeIcon,
+  FileTextIcon,
   PencilIcon,
   PlusIcon,
-  ScrollTextIcon,
+  PrinterIcon,
   SearchIcon,
   Trash2Icon,
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { PaymentBadge, StatusBadge } from "@/components/bilty/badges"
-import { BiltyDetailSheet } from "@/components/bilty/bilty-detail-sheet"
-import { BiltyFormDialog } from "@/components/bilty/bilty-form-dialog"
-import { BiltyLrDialog } from "@/components/bilty/bilty-lr-dialog"
+import { LoadingSlipStatusBadge } from "@/components/loading-slip/badges"
+import { LoadingSlipDialog } from "@/components/loading-slip/loading-slip-dialog"
+import { LoadingSlipFormDialog } from "@/components/loading-slip/loading-slip-form-dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,157 +53,141 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { Company } from "@/lib/companies"
-import { getSeedBilties, nextLrNo, TODAY } from "@/lib/data"
-import { formatDate, formatINR, formatNumber } from "@/lib/format"
+import { TODAY } from "@/lib/data"
+import { formatDate, formatINR } from "@/lib/format"
+import { getSeedLoadingSlips, nextSlipNo } from "@/lib/loading-slip-data"
 import {
-  BILTY_STATUSES,
-  PAYMENT_TYPES,
-  balanceDue,
-  emptyBilty,
-  grossTotal,
-  type Bilty,
-  type BiltyStatus,
-  type PaymentType,
-} from "@/lib/types"
+  LOADING_SLIP_STATUSES,
+  emptyLoadingSlip,
+  slipBalance,
+  type LoadingSlip,
+  type LoadingSlipStatus,
+} from "@/lib/loading-slip-types"
 
-type StatusFilter = BiltyStatus | "all"
-type PaymentFilter = PaymentType | "all"
+type StatusFilter = LoadingSlipStatus | "all"
 
-function matches(bilty: Bilty, query: string) {
+function matches(slip: LoadingSlip, query: string) {
   if (!query) return true
   const needle = query.trim().toLowerCase()
   return [
-    bilty.lrNo,
-    bilty.lorryNo,
-    bilty.from,
-    bilty.to,
-    bilty.consignor.name,
-    bilty.consignee.name,
-    bilty.contents,
-    bilty.invoiceNo,
-    bilty.eWayBillNo,
+    slip.slipNo,
+    slip.party,
+    slip.vehicleNo,
+    slip.from,
+    slip.to,
+    slip.remarks,
   ].some((field) => field.toLowerCase().includes(needle))
 }
 
-const byNewest = (a: Bilty, b: Bilty) =>
-  a.lrDate === b.lrDate
-    ? Number(b.lrNo) - Number(a.lrNo)
-    : a.lrDate < b.lrDate
+const byNewest = (a: LoadingSlip, b: LoadingSlip) =>
+  a.slipDate === b.slipDate
+    ? Number(b.slipNo) - Number(a.slipNo)
+    : a.slipDate < b.slipDate
       ? 1
       : -1
 
-export function BiltyRegister({ company }: { company: Company }) {
-  // Defaults for a fresh L.R. come off whichever firm's book is open.
-  const blank = React.useCallback(
-    (lrNo: string) =>
-      emptyBilty(lrNo, TODAY, {
-        from: company.origin,
-        bookingOffice: company.bookingOffices[0],
-      }),
-    [company]
-  )
-
-  const [bilties, setBilties] = React.useState<Bilty[]>(() =>
-    getSeedBilties(company.slug)
+export function LoadingSlipRegister({ company }: { company: Company }) {
+  const [slips, setSlips] = React.useState<LoadingSlip[]>(() =>
+    getSeedLoadingSlips(company.slug)
   )
   const [query, setQuery] = React.useState("")
   const [status, setStatus] = React.useState<StatusFilter>("all")
-  const [payment, setPayment] = React.useState<PaymentFilter>("all")
 
   const [form, setForm] = React.useState<{
     open: boolean
     mode: "create" | "edit"
-    bilty: Bilty
-  }>(() => ({ open: false, mode: "create", bilty: blank("") }))
+    slip: LoadingSlip
+  }>(() => ({
+    open: false,
+    mode: "create",
+    slip: emptyLoadingSlip("", TODAY, company.origin),
+  }))
 
-  const [detail, setDetail] = React.useState<Bilty | null>(null)
-  const [detailOpen, setDetailOpen] = React.useState(false)
-  const [lr, setLr] = React.useState<Bilty | null>(null)
-  const [lrOpen, setLrOpen] = React.useState(false)
-  const [pendingDelete, setPendingDelete] = React.useState<Bilty | null>(null)
+  const [viewing, setViewing] = React.useState<LoadingSlip | null>(null)
+  const [viewOpen, setViewOpen] = React.useState(false)
+  const [pendingDelete, setPendingDelete] = React.useState<LoadingSlip | null>(
+    null
+  )
 
   const visible = React.useMemo(
     () =>
-      bilties
+      slips
         .filter(
-          (b) =>
-            matches(b, query) &&
-            (status === "all" || b.status === status) &&
-            (payment === "all" || b.paymentType === payment)
+          (s) => matches(s, query) && (status === "all" || s.status === status)
         )
         .sort(byNewest),
-    [bilties, query, status, payment]
+    [slips, query, status]
   )
 
   const totals = React.useMemo(
     () =>
       visible.reduce(
-        (acc, b) => {
-          if (b.status === "Cancelled") return acc
-          acc.gross += grossTotal(b.charges)
-          acc.balance += balanceDue(b.charges)
+        (acc, slip) => {
+          if (slip.status === "Cancelled") return acc
+          acc.hire += slip.totalFreight
+          acc.advance += slip.advance
+          acc.balance += slipBalance(slip)
           return acc
         },
-        { gross: 0, balance: 0 }
+        { hire: 0, advance: 0, balance: 0 }
       ),
     [visible]
   )
 
-  const takenLrNos = React.useMemo(
-    () => bilties.filter((b) => b.id !== form.bilty.id).map((b) => b.lrNo),
-    [bilties, form.bilty.id]
+  const takenSlipNos = React.useMemo(
+    () => slips.filter((s) => s.id !== form.slip.id).map((s) => s.slipNo),
+    [slips, form.slip.id]
   )
 
   function openCreate() {
     setForm({
       open: true,
       mode: "create",
-      bilty: blank(nextLrNo(company.slug, bilties)),
+      slip: emptyLoadingSlip(
+        nextSlipNo(company.slug, slips),
+        TODAY,
+        company.origin
+      ),
     })
   }
 
-  function openEdit(bilty: Bilty) {
+  function openEdit(slip: LoadingSlip) {
     // A fresh copy each time, so reopening the same record always reloads it
     // rather than resuming a half-finished draft.
-    setForm({ open: true, mode: "edit", bilty: structuredClone(bilty) })
+    setForm({ open: true, mode: "edit", slip: structuredClone(slip) })
   }
 
-  function openDetail(bilty: Bilty) {
-    setDetail(bilty)
-    setDetailOpen(true)
+  function openSlip(slip: LoadingSlip) {
+    setViewing(slip)
+    setViewOpen(true)
   }
 
-  function openLr(bilty: Bilty) {
-    setLr(bilty)
-    setLrOpen(true)
-  }
-
-  function handleSave(saved: Bilty) {
-    setBilties((current) => {
-      const exists = current.some((b) => b.id === saved.id)
+  function handleSave(saved: LoadingSlip) {
+    setSlips((current) => {
+      const exists = current.some((s) => s.id === saved.id)
       return exists
-        ? current.map((b) => (b.id === saved.id ? saved : b))
+        ? current.map((s) => (s.id === saved.id ? saved : s))
         : [saved, ...current]
     })
     setForm((f) => ({ ...f, open: false }))
     toast.success(
       form.mode === "create"
-        ? `Bilty ${saved.lrNo} saved`
-        : `Bilty ${saved.lrNo} updated`
+        ? `Slip ${saved.slipNo} saved`
+        : `Slip ${saved.slipNo} updated`
     )
   }
 
   function handleDelete() {
     const removed = pendingDelete
     if (!removed) return
-    setBilties((current) => current.filter((b) => b.id !== removed.id))
+    setSlips((current) => current.filter((s) => s.id !== removed.id))
     setPendingDelete(null)
-    toast.success(`Bilty ${removed.lrNo} deleted`, {
+    toast.success(`Slip ${removed.slipNo} deleted`, {
       action: {
         label: "Undo",
         onClick: () =>
-          setBilties((current) =>
-            current.some((b) => b.id === removed.id)
+          setSlips((current) =>
+            current.some((s) => s.id === removed.id)
               ? current
               : [removed, ...current]
           ),
@@ -212,22 +195,23 @@ export function BiltyRegister({ company }: { company: Company }) {
     })
   }
 
-  const filtersApplied = query !== "" || status !== "all" || payment !== "all"
+  const filtersApplied = query !== "" || status !== "all"
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
-            Bilty Register
+            Loading Slips
           </h1>
           <p className="text-sm text-muted-foreground">
-            Every lorry receipt in the book — book, amend and close consignments
+            Lorries placed against a party&apos;s order — write the slip, print
+            it off the book and send it with the driver
           </p>
         </div>
         <Button onClick={openCreate}>
           <PlusIcon data-icon="inline-start" />
-          New bilty
+          New slip
         </Button>
       </header>
 
@@ -235,14 +219,14 @@ export function BiltyRegister({ company }: { company: Company }) {
       <div className="flex flex-wrap items-end gap-3">
         <div className="grid min-w-56 flex-1 gap-1.5">
           <Label htmlFor="search" className="sr-only">
-            Search bilties
+            Search slips
           </Label>
           <div className="relative">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="search"
               className="pl-8"
-              placeholder="L.R. no., party, lorry, destination, e-way bill…"
+              placeholder="Slip no., party, lorry, destination…"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -259,26 +243,7 @@ export function BiltyRegister({ company }: { company: Company }) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              {BILTY_STATUSES.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label htmlFor="filter-payment" className="sr-only">
-            Freight terms
-          </Label>
-          <Select value={payment} onValueChange={(v) => v && setPayment(v)}>
-            <SelectTrigger id="filter-payment" className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All terms</SelectItem>
-              {PAYMENT_TYPES.map((option) => (
+              {LOADING_SLIP_STATUSES.map((option) => (
                 <SelectItem key={option} value={option}>
                   {option}
                 </SelectItem>
@@ -293,7 +258,6 @@ export function BiltyRegister({ company }: { company: Company }) {
             onClick={() => {
               setQuery("")
               setStatus("all")
-              setPayment("all")
             }}
           >
             Clear
@@ -305,15 +269,14 @@ export function BiltyRegister({ company }: { company: Company }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>L.R. No.</TableHead>
+              <TableHead>No.</TableHead>
               <TableHead>Date</TableHead>
+              <TableHead>To M/s.</TableHead>
+              <TableHead>Vehicle</TableHead>
               <TableHead>Route</TableHead>
-              <TableHead>Consignor → Consignee</TableHead>
-              <TableHead className="text-right">Pkgs</TableHead>
-              <TableHead className="text-right">Charged wt.</TableHead>
-              <TableHead>Terms</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Gr. Total</TableHead>
+              <TableHead className="text-right">Freight</TableHead>
+              <TableHead className="text-right">Balance</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -321,78 +284,63 @@ export function BiltyRegister({ company }: { company: Company }) {
           <TableBody>
             {visible.length === 0 ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={10} className="h-28 text-center">
-                  <p className="text-sm font-medium">No bilties found</p>
+                <TableCell colSpan={9} className="h-28 text-center">
+                  <p className="text-sm font-medium">No loading slips found</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {filtersApplied
                       ? "Nothing matches these filters."
-                      : "The register is empty — book the first bilty."}
+                      : "The slip book is empty — write the first slip."}
                   </p>
                 </TableCell>
               </TableRow>
             ) : (
-              visible.map((bilty) => (
-                <TableRow key={bilty.id}>
+              visible.map((slip) => (
+                <TableRow key={slip.id}>
                   <TableCell className="font-medium tabular-nums">
-                    {bilty.lrNo}
+                    {slip.slipNo}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {formatDate(bilty.lrDate)}
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      {bilty.from} → {bilty.to}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {bilty.lorryNo}
-                    </div>
+                    {formatDate(slip.slipDate)}
                   </TableCell>
                   <TableCell className="max-w-64">
-                    <div className="truncate">{bilty.consignor.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {bilty.consignee.name}
-                    </div>
+                    <div className="truncate">{slip.party}</div>
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatNumber(bilty.packages)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatNumber(bilty.chargedWeight)}
+                  <TableCell className="tabular-nums">
+                    {slip.vehicleNo}
                   </TableCell>
                   <TableCell>
-                    <PaymentBadge type={bilty.paymentType} />
+                    {slip.from} → {slip.to}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={bilty.status} />
+                    <LoadingSlipStatusBadge status={slip.status} />
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatINR(slip.totalFreight)}
                   </TableCell>
                   <TableCell className="text-right font-medium tabular-nums">
-                    {formatINR(grossTotal(bilty.charges))}
+                    {formatINR(slipBalance(slip))}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={<Button variant="ghost" size="icon-sm" />}
-                        aria-label={`Actions for bilty ${bilty.lrNo}`}
+                        aria-label={`Actions for slip ${slip.slipNo}`}
                       >
                         <EllipsisIcon />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem onClick={() => openLr(bilty)}>
-                          <ScrollTextIcon />
-                          View bilty
+                        <DropdownMenuItem onClick={() => openSlip(slip)}>
+                          <FileTextIcon />
+                          View slip
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openDetail(bilty)}>
-                          <EyeIcon />
-                          Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openEdit(bilty)}>
+                        <DropdownMenuItem onClick={() => openEdit(slip)}>
                           <PencilIcon />
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           variant="destructive"
-                          onClick={() => setPendingDelete(bilty)}
+                          onClick={() => setPendingDelete(slip)}
                         >
                           <Trash2Icon />
                           Delete
@@ -408,15 +356,17 @@ export function BiltyRegister({ company }: { company: Company }) {
           {visible.length > 0 ? (
             <TableFooter>
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={8}>
-                  {visible.length} of {bilties.length} bilties · balance to
-                  collect{" "}
+                <TableCell colSpan={6}>
+                  {visible.length} of {slips.length} slips · advanced{" "}
                   <span className="tabular-nums">
-                    {formatINR(totals.balance)}
+                    {formatINR(totals.advance)}
                   </span>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {formatINR(totals.gross)}
+                  {formatINR(totals.hire)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatINR(totals.balance)}
                 </TableCell>
                 <TableCell />
               </TableRow>
@@ -425,29 +375,26 @@ export function BiltyRegister({ company }: { company: Company }) {
         </Table>
       </Card>
 
-      <BiltyFormDialog
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <PrinterIcon className="size-3.5" />
+        Open a slip to print it — the sheet goes to the printer on its own, with
+        the app around it left off the page.
+      </p>
+
+      <LoadingSlipFormDialog
         open={form.open}
         onOpenChange={(open) => setForm((f) => ({ ...f, open }))}
         mode={form.mode}
-        initial={form.bilty}
-        company={company}
-        takenLrNos={takenLrNos}
+        initial={form.slip}
+        takenSlipNos={takenSlipNos}
         onSave={handleSave}
       />
 
-      <BiltyLrDialog
-        bilty={lr}
+      <LoadingSlipDialog
+        slip={viewing}
         company={company}
-        open={lrOpen}
-        onOpenChange={setLrOpen}
-        onEdit={openEdit}
-      />
-
-      <BiltyDetailSheet
-        bilty={detail}
-        company={company}
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
+        open={viewOpen}
+        onOpenChange={setViewOpen}
         onEdit={openEdit}
       />
 
@@ -460,19 +407,19 @@ export function BiltyRegister({ company }: { company: Company }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete bilty {pendingDelete?.lrNo}?
+              Delete slip {pendingDelete?.slipNo}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the entry for {pendingDelete?.consignor.name} to{" "}
-              {pendingDelete?.to} from the register. If the consignment was
-              actually called off, mark it Cancelled instead so the L.R.
-              numbering stays unbroken.
+              This removes the slip written for {pendingDelete?.party} from the
+              book. If the slip already went out with a driver and the trip then
+              fell through, mark it Cancelled instead so the numbering stays
+              unbroken.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={handleDelete}>
-              Delete bilty
+              Delete slip
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

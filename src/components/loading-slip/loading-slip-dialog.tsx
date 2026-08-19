@@ -1,10 +1,9 @@
 "use client"
 
-import * as React from "react"
 import { PencilIcon, PrinterIcon } from "lucide-react"
 
-import { StatusBadge } from "@/components/bilty/badges"
-import { BiltyLr } from "@/components/bilty/bilty-lr"
+import { LoadingSlipStatusBadge } from "@/components/loading-slip/badges"
+import { LoadingSlipSheet } from "@/components/loading-slip/loading-slip"
 import { PrintPortal } from "@/components/print-portal"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,98 +14,70 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import type { Company } from "@/lib/companies"
 import { formatDate, formatINR } from "@/lib/format"
-import { grossTotal, type Bilty } from "@/lib/types"
+import { slipBalance, type LoadingSlip } from "@/lib/loading-slip-types"
 
-/** The book is carbon-copied; each copy goes to a different party. */
-const COPIES = [
-  "Consignee Copy",
-  "Consignor Copy",
-  "Lorry Copy",
-  "Office Copy",
-] as const
-
-export function BiltyLrDialog({
-  bilty,
+export function LoadingSlipDialog({
+  slip,
   company,
   open,
   onOpenChange,
   onEdit,
 }: {
-  bilty: Bilty | null
+  slip: LoadingSlip | null
   company: Company
   open: boolean
   onOpenChange: (open: boolean) => void
-  onEdit: (bilty: Bilty) => void
+  onEdit: (slip: LoadingSlip) => void
 }) {
-  const [copy, setCopy] = React.useState<string>(COPIES[0])
-
-  if (!bilty) return null
+  if (!slip) return null
 
   return (
     <>
       <PrintPortal open={open}>
-        <BiltyLr bilty={bilty} company={company} copy={copy} />
+        <LoadingSlipSheet slip={slip} company={company} />
       </PrintPortal>
 
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="grid max-h-[92dvh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              L.R. No. {bilty.lrNo}
-              <StatusBadge status={bilty.status} />
+              Loading Slip No. {slip.slipNo}
+              <LoadingSlipStatusBadge status={slip.status} />
             </DialogTitle>
             <DialogDescription>
-              {formatDate(bilty.lrDate)} · {bilty.from} → {bilty.to} ·{" "}
-              {bilty.lorryNo} · {formatINR(grossTotal(bilty.charges))}
+              {formatDate(slip.slipDate)} · {slip.party || "party not entered"}{" "}
+              · {slip.vehicleNo || "no lorry"} · {slip.from} → {slip.to}
             </DialogDescription>
           </DialogHeader>
 
           <div className="-mx-4 overflow-auto bg-neutral-100 px-4 py-4">
-            <BiltyLr
-              bilty={bilty}
+            <LoadingSlipSheet
+              slip={slip}
               company={company}
-              copy={copy}
               className="shadow-sm"
             />
           </div>
 
           <DialogFooter className="sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <Select value={copy} onValueChange={(v) => v && setCopy(v)}>
-                <SelectTrigger
-                  className="w-40"
-                  aria-label="Which copy to print"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {COPIES.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              Balance{" "}
+              <span className="font-semibold text-foreground tabular-nums">
+                {formatINR(slipBalance(slip))}
+              </span>{" "}
+              of {formatINR(slip.totalFreight)} hire
+            </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={() => {
                   onOpenChange(false)
-                  onEdit(bilty)
+                  onEdit(slip)
                 }}
               >
                 <PencilIcon data-icon="inline-start" />
-                Edit bilty
+                Edit slip
               </Button>
               <Button onClick={() => window.print()}>
                 <PrinterIcon data-icon="inline-start" />

@@ -201,6 +201,12 @@ const SCM_CONSIGNEES = {
   },
 } satisfies Record<string, Party>
 
+/**
+ * Kept off Prettier: each row is one consignment, written on one line so the
+ * seed reads as the register it stands in for. Reflowing it turns a 20-line
+ * table into 900 lines of unreadable object literal.
+ */
+// prettier-ignore
 const SCM_BOOK = book(
   {
     lrFloor: 3000,
@@ -365,6 +371,12 @@ const SUR_CONSIGNEES = {
   },
 } satisfies Record<string, Party>
 
+/**
+ * Kept off Prettier: each row is one consignment, written on one line so the
+ * seed reads as the register it stands in for. Reflowing it turns a 20-line
+ * table into 900 lines of unreadable object literal.
+ */
+// prettier-ignore
 const SUR_BOOK = book(
   {
     lrFloor: 7400,
@@ -466,10 +478,7 @@ function buildBilties(company: Company, source: Book): Bilty[] {
 
 // Built once at import, exactly as the single register used to be.
 const REGISTERS: Record<CompanySlug, Bilty[]> = {
-  "sewak-cargo-movers": buildBilties(
-    COMPANIES["sewak-cargo-movers"],
-    SCM_BOOK
-  ),
+  "sewak-cargo-movers": buildBilties(COMPANIES["sewak-cargo-movers"], SCM_BOOK),
   "sewak-union-roadways": buildBilties(
     COMPANIES["sewak-union-roadways"],
     SUR_BOOK

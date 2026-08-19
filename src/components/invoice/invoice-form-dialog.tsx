@@ -304,7 +304,9 @@ export function InvoiceFormDialog({
       ...d,
       lines: [
         ...d.lines,
-        kind === "Freight" ? { ...emptyLine(kind), date: d.billDate } : emptyLine(kind),
+        kind === "Freight"
+          ? { ...emptyLine(kind), date: d.billDate }
+          : emptyLine(kind),
       ],
     }))
 
@@ -417,7 +419,9 @@ export function InvoiceFormDialog({
                 id="partyGst"
                 placeholder="21AAFCI9440L1ZG"
                 value={draft.party.gstNo}
-                onChange={(e) => setParty("gstNo", e.target.value.toUpperCase())}
+                onChange={(e) =>
+                  setParty("gstNo", e.target.value.toUpperCase())
+                }
               />
             </Field>
             <Field

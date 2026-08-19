@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 
-import { BiltyRegister } from "@/components/bilty/bilty-register"
+import { LoadingSlipRegister } from "@/components/loading-slip/loading-slip-register"
 import { companyFromParams, type CompanyParams } from "@/lib/company-route"
 
 export async function generateMetadata({
@@ -9,13 +9,17 @@ export async function generateMetadata({
   params: CompanyParams
 }): Promise<Metadata> {
   const company = await companyFromParams(params)
-  return { title: `Bilty Register — ${company.name}` }
+  return { title: `Loading Slips — ${company.name}` }
 }
 
-export default async function BiltyPage({ params }: { params: CompanyParams }) {
+export default async function LoadingSlipsPage({
+  params,
+}: {
+  params: CompanyParams
+}) {
   const company = await companyFromParams(params)
 
   // Keyed on the firm so switching books remounts the register rather than
   // carrying one firm's edits, filters and open dialogs into the other's.
-  return <BiltyRegister key={company.slug} company={company} />
+  return <LoadingSlipRegister key={company.slug} company={company} />
 }

@@ -1,11 +1,7 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 
-import {
-  COMPANY_COOKIE,
-  DEFAULT_COMPANY,
-  isCompanySlug,
-} from "@/lib/companies"
+import { COMPANY_COOKIE, DEFAULT_COMPANY, isCompanySlug } from "@/lib/companies"
 
 /**
  * The app has no home of its own — it always opens on a firm. Whichever book

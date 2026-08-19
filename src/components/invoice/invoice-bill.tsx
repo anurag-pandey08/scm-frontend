@@ -2,7 +2,11 @@ import { TruckIcon } from "lucide-react"
 
 import type { Company } from "@/lib/companies"
 import { amountInWords, formatNumber, formatTonnes } from "@/lib/format"
-import { invoiceTotal, type Invoice, type InvoiceLine } from "@/lib/invoice-types"
+import {
+  invoiceTotal,
+  type Invoice,
+  type InvoiceLine,
+} from "@/lib/invoice-types"
 import { cn } from "@/lib/utils"
 
 /**
@@ -94,11 +98,13 @@ export function InvoiceBill({
           >
             <TruckIcon className="size-6" />
           </span>
-          <p className="font-bold">M : {company.phones.slice(0, 2).join(" , ")}</p>
+          <p className="font-bold">
+            M : {company.phones.slice(0, 2).join(" , ")}
+          </p>
           <p className="text-2xl font-bold tracking-tight text-[#c81e1e] uppercase">
             {company.name}
           </p>
-          <p className="text-[10px] font-bold italic uppercase">
+          <p className="text-[10px] font-bold uppercase italic">
             {company.billTagline}
           </p>
           <p className="mt-1 font-bold">EMAIL: {company.emails.bill}</p>
