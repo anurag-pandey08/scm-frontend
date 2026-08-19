@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useSelectedLayoutSegments } from "next/navigation"
 import {
+  BookOpenIcon,
   ClipboardListIcon,
   LayoutDashboardIcon,
   PhoneIcon,
@@ -21,10 +22,18 @@ import { cn } from "@/lib/utils"
  * the order the paperwork happens in: the lorry is placed on a slip, the goods
  * go out on an L.R., the party is billed for them.
  *
- * `short` is what the mobile bar shows — four full labels do not fit across a
+ * `short` is what the mobile bar shows — the full labels do not fit across a
  * phone, and the header nav has no room to wrap.
+ *
+ * `shared` marks a screen whose data is not the firm's own.
  */
-const NAV = [
+const NAV: {
+  segment: string
+  label: string
+  short: string
+  icon: typeof LayoutDashboardIcon
+  shared?: boolean
+}[] = [
   {
     segment: "dashboard",
     label: "Dashboard",
@@ -48,6 +57,15 @@ const NAV = [
     label: "Loading Slips",
     short: "Slips",
     icon: ClipboardListIcon,
+  },
+  // Last, and marked as shared: it is the one screen here that does not belong
+  // to the firm named above it in the sidebar.
+  {
+    segment: "trips",
+    label: "Trip Register",
+    short: "Trips",
+    icon: BookOpenIcon,
+    shared: true,
   },
 ]
 
@@ -88,6 +106,14 @@ export function AppShell({
               >
                 <item.icon className="size-4" />
                 {item.label}
+                {item.shared ? (
+                  <span
+                    className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    title="Shared by both firms"
+                  >
+                    Both
+                  </span>
+                ) : null}
               </Link>
             )
           })}
