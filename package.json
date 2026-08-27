@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "icons": "node scripts/generate-icons.mjs",
+    "check:sw": "node scripts/check-service-worker.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
