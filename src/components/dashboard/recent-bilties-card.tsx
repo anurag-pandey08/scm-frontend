@@ -19,18 +19,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import type { CompanySlug } from "@/lib/companies"
 import { formatDate, formatINR } from "@/lib/format"
 import { grossTotal, type Bilty } from "@/lib/types"
 
-export function RecentBiltiesCard({ bilties }: { bilties: Bilty[] }) {
+export function RecentBiltiesCard({
+  company,
+  bilties,
+}: {
+  company: CompanySlug
+  bilties: Bilty[]
+}) {
   return (
     <Card className="h-full">
       <CardHeader>
         <CardTitle>Latest bookings</CardTitle>
         <CardDescription>Most recent entries in the LR book</CardDescription>
         <CardAction>
+          {/* Every screen lives under a firm — the register this card is
+              showing is the one belonging to the firm whose dashboard it is
+              on, so the link has to carry the slug. */}
           <Link
-            href="/bilty"
+            href={`/${company}/bilty`}
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
             Open register

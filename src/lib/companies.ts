@@ -73,13 +73,6 @@ export interface Company {
   detailsConfirmed: boolean
 }
 
-/**
- * Everything the client has not sent yet reads exactly like this — never a
- * plausible-looking figure, so a placeholder can never be mistaken for the
- * real thing on a printed L.R. or bill.
- */
-const TBC = "TO BE CONFIRMED"
-
 export const COMPANIES: Record<CompanySlug, Company> = {
   "sewak-cargo-movers": {
     slug: "sewak-cargo-movers",
@@ -117,9 +110,8 @@ export const COMPANIES: Record<CompanySlug, Company> = {
     detailsConfirmed: true,
   },
 
-  // TODO: every TBC below is waiting on the client. They print as-is on the
-  // L.R. and the bill, so this firm's documents are not fit to hand out until
-  // the real letterhead details land here. Flip `detailsConfirmed` when done.
+  // Letterhead taken off this firm's own L.R. book: the same Odhav premises as
+  // Sewak Cargo Movers, but its own PAN, its own two numbers and its own bank.
   "sewak-union-roadways": {
     slug: "sewak-union-roadways",
     name: "Sewak Union Roadways",
@@ -127,30 +119,33 @@ export const COMPANIES: Record<CompanySlug, Company> = {
     tagline: "Transport Contractors & Fleet Owner",
     lrTagline: "Transport Contractors & Fleet Owner",
     billTagline: "Transport Contractors and Fleetowner",
-    address: `${TBC} — letterhead address not yet supplied`,
-    officeLine: TBC,
+    address:
+      "40, Sarthi Complex, First Floor, Nr. Bileshwar Complex, Opp. G.V.M.M., Odhav, Ahmedabad-382415",
+    officeLine: "Odhav, Ahmedabad-382415",
     emails: {
       lr: "sewakunionroadways@gmail.com",
       bill: "sewakunionroadways@gmail.com",
     },
-    phones: [TBC],
-    pan: TBC,
+    // Two numbers on this book, not the three Sewak Cargo Movers prints.
+    phones: ["9376150604", "9376050604"],
+    pan: "BDSPP5578G",
     jurisdiction: "Subject to Ahmedabad Jurisdiction",
     bank: {
-      name: TBC,
-      branch: TBC,
-      accountNo: TBC,
-      ifsc: TBC,
+      name: "ICICI Bank",
+      branch: "Vastral Metro Branch, Ahmedabad",
+      accountNo: "720505000304",
+      ifsc: "ICIC0007205",
     },
     origin: "Ahmedabad",
-    // TODO: confirm — assumed to book from the same premises for now.
+    // The L.R. leaves "Booking Office" blank for the clerk to write in, so the
+    // book names no branches — these stay the same premises as the other firm.
     bookingOffices: [
       "Odhav, Ahmedabad",
       "Naroda, Ahmedabad",
       "Rakhial, Ahmedabad",
     ],
     accentClass: "bg-chart-2",
-    detailsConfirmed: false,
+    detailsConfirmed: true,
   },
 }
 
