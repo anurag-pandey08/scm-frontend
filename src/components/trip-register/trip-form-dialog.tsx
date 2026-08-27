@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { DateField } from "@/components/date-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -195,11 +196,10 @@ export function TripFormDialog({
         <div className="-mx-4 overflow-y-auto px-4">
           <Section title="Trip">
             <Field label="Date" htmlFor="date" error={errors.date}>
-              <Input
+              <DateField
                 id="date"
-                type="date"
                 value={draft.date}
-                onChange={(e) => set("date", e.target.value)}
+                onValueChange={(v) => set("date", v)}
               />
             </Field>
             <Field label="Truck No." htmlFor="truckNo" error={errors.truckNo}>
@@ -321,11 +321,10 @@ export function TripFormDialog({
               htmlFor="receiveDate"
               hint="Advance taken by the driver"
             >
-              <Input
+              <DateField
                 id="receiveDate"
-                type="date"
                 value={draft.receiveDate}
-                onChange={(e) => set("receiveDate", e.target.value)}
+                onValueChange={(v) => set("receiveDate", v)}
               />
             </Field>
             <Field
@@ -333,11 +332,10 @@ export function TripFormDialog({
               htmlFor="paidDate"
               hint="Balance settled with the lorry"
             >
-              <Input
+              <DateField
                 id="paidDate"
-                type="date"
                 value={draft.paidDate}
-                onChange={(e) => set("paidDate", e.target.value)}
+                onValueChange={(v) => set("paidDate", v)}
               />
             </Field>
             <Field label="Commission" htmlFor="commission">
@@ -365,11 +363,10 @@ export function TripFormDialog({
               />
             </Field>
             <Field label="Advance Date" htmlFor="advanceDate">
-              <Input
+              <DateField
                 id="advanceDate"
-                type="date"
                 value={draft.advanceDate}
-                onChange={(e) => set("advanceDate", e.target.value)}
+                onValueChange={(v) => set("advanceDate", v)}
               />
             </Field>
             <Field label="Balance Receive Rs." htmlFor="balanceReceiveRs">
@@ -380,11 +377,10 @@ export function TripFormDialog({
               />
             </Field>
             <Field label="Balance Date" htmlFor="balanceDate">
-              <Input
+              <DateField
                 id="balanceDate"
-                type="date"
                 value={draft.balanceDate}
-                onChange={(e) => set("balanceDate", e.target.value)}
+                onValueChange={(v) => set("balanceDate", v)}
               />
             </Field>
             <div className="self-end rounded-lg bg-muted/60 p-3">

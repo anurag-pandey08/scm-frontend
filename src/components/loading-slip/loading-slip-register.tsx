@@ -66,6 +66,17 @@ import {
 
 type StatusFilter = LoadingSlipStatus | "all"
 
+/**
+ * The filter options, each with the label the closed trigger shows for it.
+ * `Select` is handed these as `items` so the trigger can name the choice —
+ * without them it falls back to printing the raw value, and "all" is not
+ * what the row reads as.
+ */
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "All statuses" },
+  ...LOADING_SLIP_STATUSES.map((status) => ({ value: status, label: status })),
+]
+
 function matches(slip: LoadingSlip, query: string) {
   if (!query) return true
   const needle = query.trim().toLowerCase()
@@ -237,32 +248,37 @@ export function LoadingSlipRegister({ company }: { company: Company }) {
           <Label htmlFor="filter-status" className="sr-only">
             Status
           </Label>
-          <Select value={status} onValueChange={(v) => v && setStatus(v)}>
+          <Select
+            items={STATUS_FILTERS}
+            value={status}
+            onValueChange={(v) => v && setStatus(v)}
+          >
             <SelectTrigger id="filter-status" className="w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {LOADING_SLIP_STATUSES.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {option}
+              {STATUS_FILTERS.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {filtersApplied ? (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setQuery("")
-              setStatus("all")
-            }}
-          >
-            Clear
-          </Button>
-        ) : null}
+        {/* Always in the row, and flat until there is something to clear. A
+            button that comes and goes shoves the controls beside it sideways
+            every time a filter is set or dropped. */}
+        <Button
+          variant="ghost"
+          disabled={!filtersApplied}
+          onClick={() => {
+            setQuery("")
+            setStatus("all")
+          }}
+        >
+          Clear
+        </Button>
       </div>
 
       <Card className="py-0">

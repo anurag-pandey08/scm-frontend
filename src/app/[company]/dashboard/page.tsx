@@ -100,7 +100,7 @@ export default async function DashboardPage({
       <section className="grid gap-4 *:min-w-0 lg:grid-cols-3">
         <TopRoutesCard routes={getTopRoutes(slug)} />
         <div className="lg:col-span-2">
-          <RecentBiltiesCard bilties={getRecentBilties(slug)} />
+          <RecentBiltiesCard company={slug} bilties={getRecentBilties(slug)} />
         </div>
       </section>
     </div>

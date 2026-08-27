@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { DateField } from "@/components/date-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -217,11 +218,10 @@ export function BiltyFormDialog({
               />
             </Field>
             <Field label="Date" htmlFor="lrDate" error={errors.lrDate}>
-              <Input
+              <DateField
                 id="lrDate"
-                type="date"
                 value={draft.lrDate}
-                onChange={(e) => set("lrDate", e.target.value)}
+                onValueChange={(v) => set("lrDate", v)}
               />
             </Field>
             <Field label="Lorry No." htmlFor="lorryNo">
@@ -601,12 +601,11 @@ export function BiltyFormDialog({
               />
             </Field>
             <Field label="Policy date" htmlFor="insuranceDate">
-              <Input
+              <DateField
                 id="insuranceDate"
-                type="date"
                 value={draft.insurance.date}
-                onChange={(e) =>
-                  set("insurance", { ...draft.insurance, date: e.target.value })
+                onValueChange={(v) =>
+                  set("insurance", { ...draft.insurance, date: v })
                 }
               />
             </Field>
