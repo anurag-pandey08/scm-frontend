@@ -16,6 +16,7 @@ import { PaymentBadge, StatusBadge } from "@/components/bilty/badges"
 import { BiltyDetailSheet } from "@/components/bilty/bilty-detail-sheet"
 import { BiltyFormDialog } from "@/components/bilty/bilty-form-dialog"
 import { BiltyLrDialog } from "@/components/bilty/bilty-lr-dialog"
+import { useCompany } from "@/components/company-provider"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +54,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { Company } from "@/lib/companies"
 import { getSeedBilties, nextLrNo, TODAY } from "@/lib/data"
 import { formatDate, formatINR, formatNumber } from "@/lib/format"
 import {
@@ -109,8 +109,11 @@ const byNewest = (a: Bilty, b: Bilty) =>
       ? 1
       : -1
 
-export function BiltyRegister({ company }: { company: Company }) {
-  // Defaults for a fresh L.R. come off whichever firm's book is open.
+export function BiltyRegister() {
+  // Defaults for a fresh L.R. come off whichever firm's book is open, and
+  // follow the letterhead if the office edits it.
+  const company = useCompany()
+
   const blank = React.useCallback(
     (lrNo: string) =>
       emptyBilty(lrNo, TODAY, {

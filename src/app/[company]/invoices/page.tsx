@@ -21,5 +21,5 @@ export default async function InvoicesPage({
 
   // Keyed on the firm so switching books remounts the register rather than
   // carrying one firm's edits, filters and open dialogs into the other's.
-  return <InvoiceRegister key={company.slug} company={company} />
+  return <InvoiceRegister key={company.slug} />
 }

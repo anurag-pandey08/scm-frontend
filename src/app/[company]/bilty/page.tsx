@@ -17,5 +17,5 @@ export default async function BiltyPage({ params }: { params: CompanyParams }) {
 
   // Keyed on the firm so switching books remounts the register rather than
   // carrying one firm's edits, filters and open dialogs into the other's.
-  return <BiltyRegister key={company.slug} company={company} />
+  return <BiltyRegister key={company.slug} />
 }
