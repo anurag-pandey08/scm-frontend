@@ -56,14 +56,25 @@ function SelectTrigger({
   )
 }
 
+/**
+ * The popup drops below the trigger and lines up with its left edge.
+ *
+ * Base UI defaults `alignItemWithTrigger` to `true`, which is the native macOS
+ * behaviour: the popup covers the trigger so the selected item's text sits over
+ * the trigger's own text. That reads as a misaligned menu here — it overlaps the
+ * control, shifts sideways to line the two labels up, and ignores `sideOffset` —
+ * and it only does it for mouse input, so the same select lands somewhere else
+ * when opened from the keyboard. A plain dropdown is what the rest of the app's
+ * menus do.
+ */
 function SelectContent({
   className,
   children,
   side = "bottom",
   sideOffset = 4,
-  align = "center",
+  align = "start",
   alignOffset = 0,
-  alignItemWithTrigger = true,
+  alignItemWithTrigger = false,
   ...props
 }: SelectPrimitive.Popup.Props &
   Pick<

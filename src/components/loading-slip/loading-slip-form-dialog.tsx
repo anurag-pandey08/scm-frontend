@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { DateField } from "@/components/date-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -222,11 +223,10 @@ export function LoadingSlipFormDialog({
               />
             </Field>
             <Field label="Date" htmlFor="slipDate" error={errors.slipDate}>
-              <Input
+              <DateField
                 id="slipDate"
-                type="date"
                 value={draft.slipDate}
-                onChange={(e) => set("slipDate", e.target.value)}
+                onValueChange={(v) => set("slipDate", v)}
               />
             </Field>
             <Field

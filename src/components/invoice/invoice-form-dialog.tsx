@@ -3,6 +3,7 @@
 import * as React from "react"
 import { PlusIcon, Trash2Icon } from "lucide-react"
 
+import { DateField } from "@/components/date-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -191,11 +192,10 @@ function LineRow({
               />
             </Field>
             <Field label="Date" htmlFor={id("date")}>
-              <Input
+              <DateField
                 id={id("date")}
-                type="date"
                 value={line.date}
-                onChange={(e) => set("date", e.target.value)}
+                onValueChange={(v) => set("date", v)}
               />
             </Field>
             <Field label="Perticulars" htmlFor={id("particulars")}>
@@ -366,11 +366,10 @@ export function InvoiceFormDialog({
               />
             </Field>
             <Field label="Date" htmlFor="billDate" error={errors.billDate}>
-              <Input
+              <DateField
                 id="billDate"
-                type="date"
                 value={draft.billDate}
-                onChange={(e) => set("billDate", e.target.value)}
+                onValueChange={(v) => set("billDate", v)}
               />
             </Field>
             <Field label="Status" htmlFor="status">
@@ -396,12 +395,11 @@ export function InvoiceFormDialog({
               error={errors.paidOn}
               hint="Only once the party has paid"
             >
-              <Input
+              <DateField
                 id="paidOn"
-                type="date"
                 disabled={draft.status !== "Paid"}
                 value={draft.paidOn}
-                onChange={(e) => set("paidOn", e.target.value)}
+                onValueChange={(v) => set("paidOn", v)}
               />
             </Field>
           </Section>

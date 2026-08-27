@@ -66,6 +66,18 @@ import { cn } from "@/lib/utils"
 
 type Filter = "all" | "party-owes" | "lorry-owed"
 
+/**
+ * The filter options, each with the label the closed trigger shows for it.
+ * `Select` is handed these as `items` so the trigger can name the choice —
+ * without them it falls back to printing the raw value, and "party-owes" is not
+ * what the row reads as.
+ */
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: "all", label: "All rows" },
+  { value: "party-owes", label: "Party still owes" },
+  { value: "lorry-owed", label: "Lorry still to be paid" },
+]
+
 function matches(trip: Trip, query: string) {
   if (!query) return true
   const needle = query.trim().toLowerCase()
@@ -135,17 +147,172 @@ const NUMERIC = new Set([
   "Balance Receive Rs.",
 ])
 
+/** Closes the pinned pair off from the spread — see `stickyCell`. */
+const stickyEdge = "shadow-[inset_-1px_0_0_0_var(--border)]"
+
 /**
  * The first two columns stay put while the rest of the spread scrolls, so a row
- * never loses the date and lorry that identify it. They carry their own
- * background, and follow the row's hover with it.
+ * never loses the date and lorry that identify it.
  *
- * The Date column is pinned to `w-24` so the Truck No. column's `left-24` lands
- * exactly against it — leave the width off and the second column overlaps the
- * first as soon as a date renders narrower than the offset.
+ * Two things make them read as solid paper rather than tracing paper. The
+ * background is `bg-card` — the Card the table sits in, not `bg-background`,
+ * which is a different colour under the dark theme. And the row's hover tint
+ * arrives as an overlay rather than as `bg-muted/50` on the cell itself: a
+ * half-transparent background would let the scrolled columns show straight
+ * through. The overlay sits behind the text (`-z-10`, inside the stacking
+ * context the sticky cell already opens) and matches the tint the rest of the
+ * row takes from the `tr`.
+ *
+ * The pair is closed off on the right by `stickyEdge` rather than a `border-r`:
+ * collapsed table borders are painted by the table, not the cell, so they stay
+ * behind while the cell sticks.
  */
-const stickyCell =
-  "sticky bg-background transition-colors group-hover/row:bg-muted/50"
+const stickyCell = cn(
+  "sticky bg-card",
+  "before:pointer-events-none before:absolute before:inset-0 before:-z-10",
+  "before:bg-muted/50 before:opacity-0 before:transition-opacity",
+  "group-hover/row:before:opacity-100 group-has-aria-expanded/row:before:opacity-100"
+)
+
+/**
+ * Edit and delete for one trip — the table's last cell on a wide screen, the
+ * card's top corner on a narrow one.
+ */
+function RowActions({
+  trip,
+  onEdit,
+  onDelete,
+}: {
+  trip: Trip
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="icon-sm" />}
+        aria-label={`Actions for the ${trip.truckNo} trip`}
+      >
+        <EllipsisIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem onClick={onEdit}>
+          <PencilIcon />
+          Edit
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onDelete}>
+          <Trash2Icon />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** One labelled figure on a trip card. */
+function CardField({
+  label,
+  value,
+  className,
+  strong,
+}: {
+  label: string
+  value: React.ReactNode
+  className?: string
+  strong?: boolean
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <dt className="text-[11px] text-muted-foreground">{label}</dt>
+      <dd className={cn("truncate", strong && "font-medium tabular-nums")}>
+        {value}
+      </dd>
+    </div>
+  )
+}
+
+/**
+ * A trip as it reads below `md`. The spread is 22 columns wide: on a phone the
+ * pinned Date and Truck No. pair eats most of the viewport and leaves a slot
+ * too narrow to read the scrolled columns through, so the row is dealt out
+ * downwards instead. What is here is what identifies the trip and what is
+ * outstanding either side of it; the rest of the ledger is one tap away, in
+ * the same form the row is edited in.
+ */
+function TripCard({
+  trip,
+  onEdit,
+  onDelete,
+}: {
+  trip: Trip
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const dueFromParty = Math.max(0, tripDueFromParty(trip))
+  const dueToLorry = trip.paidDate ? 0 : trip.balance
+
+  return (
+    <Card size="sm" className="gap-2.5">
+      <div className="flex items-start gap-2 px-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{trip.truckNo}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {formatDateNumeric(trip.date)} · {trip.from} → {trip.to}
+          </p>
+        </div>
+        <RowActions trip={trip} onEdit={onEdit} onDelete={onDelete} />
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-t px-3 pt-2.5 text-xs">
+        <CardField
+          label={trip.brokerName ? "Party · Broker" : "Party"}
+          className="col-span-2"
+          value={
+            trip.brokerName
+              ? `${trip.partyName} · ${trip.brokerName}`
+              : trip.partyName
+          }
+        />
+        <CardField
+          label="Goods"
+          className="col-span-2"
+          value={
+            trip.weight
+              ? `${trip.goods} · ${Number(trip.weight.toFixed(3))} t`
+              : trip.goods
+          }
+        />
+        <CardField
+          label="Freight"
+          strong
+          value={formatINR(tripFreight(trip))}
+        />
+        <CardField
+          label="Commission"
+          strong
+          value={trip.commission ? formatINR(trip.commission) : "—"}
+        />
+        <CardField
+          label="Party still owes"
+          strong
+          value={dueFromParty ? formatINR(dueFromParty) : "Settled"}
+        />
+        <CardField
+          label="Lorry still to be paid"
+          strong
+          value={dueToLorry ? formatINR(dueToLorry) : "Settled"}
+        />
+      </dl>
+
+      {trip.remarks ? (
+        <p className="border-t px-3 pt-2.5 text-xs text-muted-foreground">
+          {trip.remarks}
+        </p>
+      ) : null}
+    </Card>
+  )
+}
 
 export function TripRegister() {
   const [trips, setTrips] = React.useState<Trip[]>(() => getSeedTrips())
@@ -163,6 +330,32 @@ export function TripRegister() {
   }))
 
   const [pendingDelete, setPendingDelete] = React.useState<Trip | null>(null)
+
+  /**
+   * Where the Truck No. column parks. A hard-coded offset only lines up while
+   * the Date column happens to be exactly that wide — the table lays itself out
+   * from its contents, so the real width drifts with the viewport and leaves
+   * either a seam the spread shows through or an overlap that eats the date.
+   * Measuring the header cell keeps the two flush at any width.
+   */
+  const dateHead = React.useRef<HTMLTableCellElement>(null)
+  const [dateWidth, setDateWidth] = React.useState(96)
+
+  React.useEffect(() => {
+    const cell = dateHead.current
+    if (!cell) return
+    const observer = new ResizeObserver(() => {
+      // Floor it: a sub-pixel overlap hides under the next column, a sub-pixel
+      // shortfall is a visible hairline of scrolled text.
+      setDateWidth(Math.floor(cell.getBoundingClientRect().width))
+    })
+    observer.observe(cell)
+    return () => observer.disconnect()
+  }, [])
+
+  /** `left` for the two pinned columns; every other column scrolls. */
+  const stickyLeft = (index: number) =>
+    index === 0 ? { left: 0 } : index === 1 ? { left: dateWidth } : undefined
 
   const visible = React.useMemo(
     () =>
@@ -248,6 +441,18 @@ export function TripRegister() {
 
   const filtersApplied = query !== "" || filter !== "all"
 
+  /** Same words whether the register is showing as cards or as the spread. */
+  const emptyState = (
+    <>
+      <p className="text-sm font-medium">No trips found</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {filtersApplied
+          ? "Nothing matches these filters."
+          : "The daybook is empty — enter the first trip."}
+      </p>
+    </>
+  )
+
   const cells = (trip: Trip): React.ReactNode[] => [
     formatDateNumeric(trip.date),
     trip.truckNo,
@@ -324,29 +529,37 @@ export function TripRegister() {
           <Label htmlFor="filter-money" className="sr-only">
             Outstanding
           </Label>
-          <Select value={filter} onValueChange={(v) => v && setFilter(v)}>
+          <Select
+            items={FILTERS}
+            value={filter}
+            onValueChange={(v) => v && setFilter(v)}
+          >
             <SelectTrigger id="filter-money" className="w-52">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All rows</SelectItem>
-              <SelectItem value="party-owes">Party still owes</SelectItem>
-              <SelectItem value="lorry-owed">Lorry still to be paid</SelectItem>
+              {FILTERS.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
 
-        {filtersApplied ? (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setQuery("")
-              setFilter("all")
-            }}
-          >
-            Clear
-          </Button>
-        ) : null}
+        {/* Always in the row, and flat until there is something to clear. A
+            button that comes and goes shoves the controls beside it sideways
+            every time a filter is set or dropped. */}
+        <Button
+          variant="ghost"
+          disabled={!filtersApplied}
+          onClick={() => {
+            setQuery("")
+            setFilter("all")
+          }}
+        >
+          Clear
+        </Button>
       </div>
 
       {/* Totals sit above the spread — a footer row 22 columns wide would be
@@ -368,7 +581,24 @@ export function TripRegister() {
         ))}
       </dl>
 
-      <Card className="py-0">
+      {/* Below md: one card per trip. See `TripCard` for why the spread does
+          not come along. */}
+      <div className="flex flex-col gap-3 md:hidden">
+        {visible.length === 0 ? (
+          <Card className="px-4 py-8 text-center">{emptyState}</Card>
+        ) : (
+          visible.map((trip) => (
+            <TripCard
+              key={trip.id}
+              trip={trip}
+              onEdit={() => openEdit(trip)}
+              onDelete={() => setPendingDelete(trip)}
+            />
+          ))
+        )}
+      </div>
+
+      <Card className="hidden py-0 md:block">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -387,10 +617,12 @@ export function TripRegister() {
               {COLUMNS.map((column, index) => (
                 <TableHead
                   key={column}
+                  ref={index === 0 ? dateHead : undefined}
+                  style={stickyLeft(index)}
                   className={cn(
                     NUMERIC.has(column) && "text-right",
-                    index === 0 && cn(stickyCell, "left-0 z-20 w-24"),
-                    index === 1 && cn(stickyCell, "left-24 z-20 border-r")
+                    index === 0 && cn(stickyCell, "z-20 w-24"),
+                    index === 1 && cn(stickyCell, stickyEdge, "z-20")
                   )}
                 >
                   {column}
@@ -407,12 +639,7 @@ export function TripRegister() {
                   colSpan={COLUMNS.length + 1}
                   className="h-28 text-center"
                 >
-                  <p className="text-sm font-medium">No trips found</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {filtersApplied
-                      ? "Nothing matches these filters."
-                      : "The daybook is empty — enter the first trip."}
-                  </p>
+                  {emptyState}
                 </TableCell>
               </TableRow>
             ) : (
@@ -421,15 +648,15 @@ export function TripRegister() {
                   {cells(trip).map((value, index) => (
                     <TableCell
                       key={COLUMNS[index]}
+                      style={stickyLeft(index)}
                       className={cn(
                         NUMERIC.has(COLUMNS[index]) &&
                           "text-right tabular-nums",
                         COLUMNS[index] === "Remarks" &&
                           "max-w-56 truncate text-xs whitespace-normal text-muted-foreground",
-                        index === 0 &&
-                          cn(stickyCell, "left-0 z-10 w-24 tabular-nums"),
+                        index === 0 && cn(stickyCell, "z-10 w-24 tabular-nums"),
                         index === 1 &&
-                          cn(stickyCell, "left-24 z-10 border-r font-medium")
+                          cn(stickyCell, stickyEdge, "z-10 font-medium")
                       )}
                       title={
                         COLUMNS[index] === "Remarks" && trip.remarks
@@ -441,28 +668,11 @@ export function TripRegister() {
                     </TableCell>
                   ))}
                   <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<Button variant="ghost" size="icon-sm" />}
-                        aria-label={`Actions for the ${trip.truckNo} trip`}
-                      >
-                        <EllipsisIcon />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem onClick={() => openEdit(trip)}>
-                          <PencilIcon />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => setPendingDelete(trip)}
-                        >
-                          <Trash2Icon />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <RowActions
+                      trip={trip}
+                      onEdit={() => openEdit(trip)}
+                      onDelete={() => setPendingDelete(trip)}
+                    />
                   </TableCell>
                 </TableRow>
               ))
