@@ -11,9 +11,11 @@ import {
   PhoneIcon,
   ReceiptIndianRupeeIcon,
   ScrollTextIcon,
+  SettingsIcon,
   TriangleAlertIcon,
 } from "lucide-react"
 
+import { useCompany } from "@/components/company-provider"
 import { CompanySwitcher } from "@/components/company-switcher"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
@@ -22,7 +24,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { Company } from "@/lib/companies"
 import { cn } from "@/lib/utils"
 
 /**
@@ -66,14 +67,22 @@ const NAV: {
     short: "Slips",
     icon: ClipboardListIcon,
   },
-  // Last, and marked as shared: it is the one screen here that does not belong
-  // to the firm named above it in the sidebar.
+  // Last of the books, and marked as shared: it is the one register here that
+  // does not belong to the firm named above it in the sidebar.
   {
     segment: "trips",
     label: "Trip Register",
     short: "Trips",
     icon: BookOpenIcon,
     shared: true,
+  },
+  // Not a book at all — the firm's own letterhead, which every one of the
+  // screens above prints on. It sits after them for that reason.
+  {
+    segment: "settings",
+    label: "Company Settings",
+    short: "Settings",
+    icon: SettingsIcon,
   },
 ]
 
@@ -92,13 +101,12 @@ function SharedTag({ className }: { className?: string }) {
   )
 }
 
-export function AppShell({
-  company,
-  children,
-}: {
-  company: Company
-  children: React.ReactNode
-}) {
+export function AppShell({ children }: { children: React.ReactNode }) {
+  // Whatever the office has the letterhead down as — the sidebar names the firm
+  // and prints its booking office, and both follow an edit on the settings
+  // screen without a reload.
+  const company = useCompany()
+
   // Read below the [company] layout, so the nav highlights the same screen
   // whichever firm's books are open.
   const [current] = useSelectedLayoutSegments()
@@ -169,7 +177,7 @@ export function AppShell({
           <CompanySwitcher company={company} compact className="lg:hidden" />
 
           {/*
-            Below md the five screens do not fit across the header, so it names
+            Below md the screens do not fit across the header, so it names
             the open one instead — a crumb after the firm — and hands the rest
             over as a menu. The screen you are on is the button you press to
             leave it, which is the shortest reach on a phone.

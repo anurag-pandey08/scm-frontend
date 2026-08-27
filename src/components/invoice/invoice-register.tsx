@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { InvoiceStatusBadge } from "@/components/invoice/badges"
 import { InvoiceBillDialog } from "@/components/invoice/invoice-bill-dialog"
 import { InvoiceFormDialog } from "@/components/invoice/invoice-form-dialog"
+import { useCompany } from "@/components/company-provider"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,7 +53,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { Company } from "@/lib/companies"
 import { TODAY } from "@/lib/data"
 import { formatDate, formatINR } from "@/lib/format"
 import { getSeedInvoices, nextBillNo } from "@/lib/invoice-data"
@@ -100,7 +100,9 @@ const byNewest = (a: Invoice, b: Invoice) =>
       ? 1
       : -1
 
-export function InvoiceRegister({ company }: { company: Company }) {
+export function InvoiceRegister() {
+  const company = useCompany()
+
   const [invoices, setInvoices] = React.useState<Invoice[]>(() =>
     getSeedInvoices(company.slug)
   )

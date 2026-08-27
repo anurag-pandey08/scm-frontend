@@ -10,7 +10,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { COMPANY_LIST, type Company, type CompanySlug } from "@/lib/companies"
+import { useCompanies } from "@/components/company-provider"
+import type { Company, CompanySlug } from "@/lib/companies"
 import { rememberCompany } from "@/lib/remember-company"
 import { cn } from "@/lib/utils"
 
@@ -51,6 +52,9 @@ export function CompanySwitcher({
   className?: string
 }) {
   const router = useRouter()
+  // Both firms as the office has them, so the other book is listed under the
+  // name and office its own settings screen was last saved with.
+  const companies = useCompanies()
   // Everything below `[company]` — ["dashboard"], ["bilty"], and so on — so
   // the clerk stays on the screen they were reading.
   const segments = useSelectedLayoutSegments()
@@ -89,7 +93,7 @@ export function CompanySwitcher({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="w-64">
-        {COMPANY_LIST.map((option) => {
+        {companies.map((option) => {
           const active = option.slug === company.slug
           return (
             <DropdownMenuItem

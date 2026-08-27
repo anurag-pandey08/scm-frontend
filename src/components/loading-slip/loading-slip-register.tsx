@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { LoadingSlipStatusBadge } from "@/components/loading-slip/badges"
 import { LoadingSlipDialog } from "@/components/loading-slip/loading-slip-dialog"
 import { LoadingSlipFormDialog } from "@/components/loading-slip/loading-slip-form-dialog"
+import { useCompany } from "@/components/company-provider"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,7 +53,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { Company } from "@/lib/companies"
 import { TODAY } from "@/lib/data"
 import { formatDate, formatINR } from "@/lib/format"
 import { getSeedLoadingSlips, nextSlipNo } from "@/lib/loading-slip-data"
@@ -97,7 +97,9 @@ const byNewest = (a: LoadingSlip, b: LoadingSlip) =>
       ? 1
       : -1
 
-export function LoadingSlipRegister({ company }: { company: Company }) {
+export function LoadingSlipRegister() {
+  const company = useCompany()
+
   const [slips, setSlips] = React.useState<LoadingSlip[]>(() =>
     getSeedLoadingSlips(company.slug)
   )
