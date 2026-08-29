@@ -2,7 +2,15 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { zodResolver } from "@hookform/resolvers/zod"
 import { ArrowRightIcon, InfoIcon, RotateCcwIcon } from "lucide-react"
+import {
+  Controller,
+  useForm,
+  type FieldError,
+  type FieldPath,
+  type Merge,
+} from "react-hook-form"
 import { toast } from "sonner"
 
 import {
@@ -39,20 +47,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { STATIONS, type Bank } from "@/lib/companies"
+import { ApiError } from "@/lib/api/client"
+import { STATIONS } from "@/lib/companies"
 import {
-  detailsOf,
-  sameDetails,
-  type CompanyDetails,
-} from "@/lib/company-settings"
-
-type Errors = Partial<Record<string, string>>
-
-/** AQAPP2502L — five letters, four figures, one letter. */
-const PAN = /^[A-Z]{5}[0-9]{4}[A-Z]$/
-/** ICIC0007205 — four letters, a nought, then six of either. */
-const IFSC = /^[A-Z]{4}0[A-Z0-9]{6}$/
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  letterheadOf,
+  letterheadSchema,
+  type LetterheadInput,
+} from "@/lib/schemas/company"
 
 function Section({
   title,
@@ -84,130 +85,104 @@ function Section({
  * The screen edits whichever firm the URL names, the same as every other screen
  * under `[company]`. The other firm keeps its own letterhead and is reached by
  * switching books; nothing here is shared between the two.
+ *
+ * Validation runs twice, in two places, and that is not a duplication to tidy
+ * away: `letterheadSchema` checks the form as it is typed so the office is told
+ * about a malformed IFSC without a round trip, and the API checks the same
+ * rules again because a browser is not a place to enforce anything. When the
+ * server rejects something the form let through, its field errors are put back
+ * onto the inputs that caused them — see `applyServerErrors`.
  */
 export function CompanySettings() {
   const company = useCompany()
   const companies = useCompanies()
-  const { isEdited, save, restore } = useCompanyEditor()
+  const { save, restore } = useCompanyEditor()
 
-  const current = React.useMemo(() => detailsOf(company), [company])
-
-  const [draft, setDraft] = React.useState<CompanyDetails>(current)
-  const [errors, setErrors] = React.useState<Errors>({})
-  const [loaded, setLoaded] = React.useState(company)
   const [confirmRestore, setConfirmRestore] = React.useState(false)
 
-  // The firm is a fresh object whenever the saved letterhead changes — on the
-  // first read out of the browser, and after every save. A changed identity
-  // means "these are the details now", so the form reloads rather than sitting
-  // on a draft of details nobody is using any more.
+  const form = useForm<LetterheadInput>({
+    resolver: zodResolver(letterheadSchema),
+    defaultValues: letterheadOf(company),
+    // Quiet until a field has been left once, then live — so a box is not
+    // marked wrong while it is still being typed into for the first time.
+    mode: "onTouched",
+  })
+
+  const {
+    control,
+    formState: { errors, isDirty, isSubmitting },
+    handleSubmit,
+    register,
+    reset,
+    setError,
+  } = form
+
+  // The letterhead in the cache is the one that counts. It changes on a save,
+  // on a restore, and when a refetch brings in an edit made at another desk —
+  // and in every one of those cases the form is holding a draft of details
+  // nobody is using any more, so it reloads.
+  const [loaded, setLoaded] = React.useState(company)
   if (company !== loaded) {
     setLoaded(company)
-    setDraft(detailsOf(company))
-    setErrors({})
+    reset(letterheadOf(company))
   }
 
   const other = companies.find((firm) => firm.slug !== company.slug)
-  const dirty = !sameDetails(draft, current)
-  const edited = isEdited(company.slug)
+  const busy = isSubmitting || save.isPending || restore.isPending
 
-  const set = <K extends keyof CompanyDetails>(
-    key: K,
-    value: CompanyDetails[K]
-  ) => setDraft((d) => ({ ...d, [key]: value }))
+  /**
+   * Puts the API's field errors back on the inputs.
+   *
+   * The server addresses fields the way react-hook-form does — `emails.lr`,
+   * `phones.1` — so a rejection lands on the input that caused it rather than
+   * in a toast the office has to map back to a box themselves. Anything not
+   * addressed to a field is left to the returned message.
+   */
+  function applyServerErrors(error: unknown): string {
+    const fallback = "Could not save the letterhead"
+    if (!(error instanceof ApiError)) return fallback
 
-  const setBank = (key: keyof Bank, value: string) =>
-    setDraft((d) => ({ ...d, bank: { ...d.bank, [key]: value } }))
-
-  const setEmail = (key: "lr" | "bill", value: string) =>
-    setDraft((d) => ({ ...d, emails: { ...d.emails, [key]: value } }))
-
-  function handleSave() {
-    // Trimmed first and blank rows dropped, so what is checked is what gets
-    // stored — and what gets stored is what goes on the paper.
-    const filled = (values: string[]) =>
-      values.map((value) => value.trim()).filter(Boolean)
-
-    const next: CompanyDetails = {
-      name: draft.name.trim(),
-      monogram: draft.monogram.trim().toUpperCase(),
-      tagline: draft.tagline.trim(),
-      lrTagline: draft.lrTagline.trim(),
-      billTagline: draft.billTagline.trim(),
-      address: draft.address.trim(),
-      officeLine: draft.officeLine.trim(),
-      emails: {
-        lr: draft.emails.lr.trim(),
-        bill: draft.emails.bill.trim(),
-      },
-      phones: filled(draft.phones),
-      pan: draft.pan.trim().toUpperCase(),
-      jurisdiction: draft.jurisdiction.trim(),
-      bank: {
-        name: draft.bank.name.trim(),
-        branch: draft.bank.branch.trim(),
-        accountNo: draft.bank.accountNo.trim(),
-        ifsc: draft.bank.ifsc.trim().toUpperCase(),
-      },
-      origin: draft.origin,
-      bookingOffices: filled(draft.bookingOffices),
+    if (error.fieldErrors) {
+      for (const [path, messages] of Object.entries(error.fieldErrors)) {
+        if (path === "_form" || !messages[0]) continue
+        setError(path as FieldPath<LetterheadInput>, {
+          type: "server",
+          message: messages[0],
+        })
+      }
     }
 
-    const found: Errors = {}
-    if (!next.name) found.name = "The name across the top of the letterhead"
-    if (!next.monogram) found.monogram = "Required"
-    else if (next.monogram.length > 4) found.monogram = "Four letters at most"
-    if (!next.address)
-      found.address = "Printed under the name on every document"
-    if (!next.officeLine) found.officeLine = "Required"
-    if (!next.jurisdiction) found.jurisdiction = "Required"
-
-    if (!next.emails.lr) found["emails.lr"] = "Required"
-    else if (!EMAIL.test(next.emails.lr))
-      found["emails.lr"] = "Does not look like an e-mail address"
-    if (!next.emails.bill) found["emails.bill"] = "Required"
-    else if (!EMAIL.test(next.emails.bill))
-      found["emails.bill"] = "Does not look like an e-mail address"
-
-    if (next.phones.length === 0)
-      found.phones = "At least one — the L.R. prints them across the top"
-
-    if (!next.pan) found.pan = "Required — it prints on the L.R. and the bill"
-    else if (!PAN.test(next.pan))
-      found.pan = "A PAN is five letters, four figures and a letter"
-
-    if (!next.bank.name) found["bank.name"] = "Required"
-    if (!next.bank.branch) found["bank.branch"] = "Required"
-    if (!next.bank.accountNo) found["bank.accountNo"] = "Required"
-    else if (!/^\d+$/.test(next.bank.accountNo))
-      found["bank.accountNo"] = "Figures only"
-    if (!next.bank.ifsc) found["bank.ifsc"] = "Required"
-    else if (!IFSC.test(next.bank.ifsc))
-      found["bank.ifsc"] = "An IFSC is four letters, a nought, then six more"
-
-    if (next.bookingOffices.length === 0)
-      found.bookingOffices = "At least one — a bilty is booked at one of these"
-
-    setErrors(found)
-    if (Object.keys(found).length > 0) {
-      toast.error("Check the letterhead — some details are not right yet")
-      return
-    }
-
-    setDraft(next)
-    save(company.slug, next)
-    toast.success(`Letterhead saved for ${next.name}`)
+    return error.message || fallback
   }
 
-  function handleRestore() {
-    restore(company.slug)
+  const onSubmit = handleSubmit(async (letterhead) => {
+    try {
+      const saved = await save.mutateAsync(letterhead)
+      toast.success(`Letterhead saved for ${saved.name}`)
+    } catch (error) {
+      toast.error(applyServerErrors(error))
+    }
+  })
+
+  async function handleRestore() {
     setConfirmRestore(false)
-    setErrors({})
-    toast.success("Back to the printed letterhead")
+    try {
+      await restore.mutateAsync()
+      toast.success("Back to the printed letterhead")
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError
+          ? error.message
+          : "Could not restore the printed letterhead"
+      )
+    }
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <form
+      onSubmit={(event) => void onSubmit(event)}
+      className="mx-auto flex w-full max-w-4xl flex-col gap-5"
+    >
       <header className="flex items-center gap-3">
         <Monogram company={company} />
         <div className="min-w-0">
@@ -224,11 +199,10 @@ export function CompanySettings() {
       <p className="flex gap-2 rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
         <InfoIcon className="mt-px size-3.5 shrink-0" />
         <span>
-          Kept in this browser until the backend lands — the desk next door will
-          not see these edits, and clearing the browser&apos;s data puts the
-          firm back to the letterhead transcribed from its own book. Everything
-          here goes straight onto the printed documents, so it is worth reading
-          off the book rather than from memory.
+          Saved for the whole office — the desk next door prints on this
+          letterhead too, from the moment it is saved. Everything here goes
+          straight onto the printed documents, so it is worth reading off the
+          book rather than from memory.
         </span>
       </p>
 
@@ -236,38 +210,32 @@ export function CompanySettings() {
         title="Firm"
         description="How the app names this book and tells it apart from the other one."
       >
-        <Field label="Name" htmlFor="name" error={errors.name}>
-          <Input
-            id="name"
-            value={draft.name}
-            onChange={(e) => set("name", e.target.value)}
-          />
+        <Field label="Name" htmlFor="name" error={errors.name?.message}>
+          <Input id="name" {...register("name")} />
         </Field>
         <Field
           label="Monogram"
           htmlFor="monogram"
-          error={errors.monogram}
+          error={errors.monogram?.message}
           hint="The tile in the sidebar and the roundel on the printed L.R."
         >
           <Input
             id="monogram"
             className="uppercase"
             maxLength={4}
-            value={draft.monogram}
-            onChange={(e) => set("monogram", e.target.value.toUpperCase())}
+            {...register("monogram", {
+              setValueAs: (value: string) => value.trim().toUpperCase(),
+            })}
           />
         </Field>
         <Field
           label="Tagline"
           htmlFor="tagline"
+          error={errors.tagline?.message}
           hint="Under the name in the app, beside the switcher"
           className="sm:col-span-2"
         >
-          <Input
-            id="tagline"
-            value={draft.tagline}
-            onChange={(e) => set("tagline", e.target.value)}
-          />
+          <Input id="tagline" {...register("tagline")} />
         </Field>
       </Section>
 
@@ -278,62 +246,43 @@ export function CompanySettings() {
         <Field
           label="Address"
           htmlFor="address"
-          error={errors.address}
+          error={errors.address?.message}
           hint="One line, exactly as the book prints it"
           className="sm:col-span-2"
         >
-          <Textarea
-            id="address"
-            rows={2}
-            value={draft.address}
-            onChange={(e) => set("address", e.target.value)}
-          />
+          <Textarea id="address" rows={2} {...register("address")} />
         </Field>
         <Field
           label="Booking office line"
           htmlFor="officeLine"
-          error={errors.officeLine}
+          error={errors.officeLine?.message}
           hint="The short form, for the sidebar and the switcher"
         >
-          <Input
-            id="officeLine"
-            value={draft.officeLine}
-            onChange={(e) => set("officeLine", e.target.value)}
-          />
+          <Input id="officeLine" {...register("officeLine")} />
         </Field>
         <Field
           label="Jurisdiction"
           htmlFor="jurisdiction"
-          error={errors.jurisdiction}
+          error={errors.jurisdiction?.message}
           hint="Printed in the corner of the L.R. and under the bill"
         >
-          <Input
-            id="jurisdiction"
-            value={draft.jurisdiction}
-            onChange={(e) => set("jurisdiction", e.target.value)}
-          />
+          <Input id="jurisdiction" {...register("jurisdiction")} />
         </Field>
         <Field
           label="Tagline on the L.R."
           htmlFor="lrTagline"
+          error={errors.lrTagline?.message}
           hint="The lorry receipt and the loading slip"
         >
-          <Input
-            id="lrTagline"
-            value={draft.lrTagline}
-            onChange={(e) => set("lrTagline", e.target.value)}
-          />
+          <Input id="lrTagline" {...register("lrTagline")} />
         </Field>
         <Field
           label="Tagline on the bill"
           htmlFor="billTagline"
+          error={errors.billTagline?.message}
           hint="The two books word it differently — that is not a mistake"
         >
-          <Input
-            id="billTagline"
-            value={draft.billTagline}
-            onChange={(e) => set("billTagline", e.target.value)}
-          />
+          <Input id="billTagline" {...register("billTagline")} />
         </Field>
       </Section>
 
@@ -341,43 +290,40 @@ export function CompanySettings() {
         title="Contact"
         description="The numbers along the top of the L.R., and the address each book is answered on."
       >
-        <ListField
-          label="Phone numbers"
-          id="phone"
-          itemLabel="Phone number"
-          addLabel="Add number"
-          placeholder="9376150604"
-          inputClassName="tabular-nums"
-          error={errors.phones}
-          hint="Printed in order, one per line"
-          values={draft.phones}
-          onValuesChange={(values) => set("phones", values)}
+        <Controller
+          control={control}
+          name="phones"
+          render={({ field, fieldState }) => (
+            <ListField
+              label="Phone numbers"
+              id="phone"
+              itemLabel="Phone number"
+              addLabel="Add number"
+              placeholder="9376150604"
+              inputClassName="tabular-nums"
+              hint="Printed in order, one per line"
+              values={field.value}
+              onValuesChange={field.onChange}
+              error={listError(fieldState.error)}
+              itemErrors={rowErrors(errors.phones)}
+            />
+          )}
         />
         <div className="grid content-start gap-4">
           <Field
             label="E-mail on the L.R."
             htmlFor="emailLr"
-            error={errors["emails.lr"]}
+            error={errors.emails?.lr?.message}
           >
-            <Input
-              id="emailLr"
-              type="email"
-              value={draft.emails.lr}
-              onChange={(e) => setEmail("lr", e.target.value)}
-            />
+            <Input id="emailLr" type="email" {...register("emails.lr")} />
           </Field>
           <Field
             label="E-mail on the bill"
             htmlFor="emailBill"
-            error={errors["emails.bill"]}
+            error={errors.emails?.bill?.message}
             hint="The bill book was printed separately and may carry the other address"
           >
-            <Input
-              id="emailBill"
-              type="email"
-              value={draft.emails.bill}
-              onChange={(e) => setEmail("bill", e.target.value)}
-            />
+            <Input id="emailBill" type="email" {...register("emails.bill")} />
           </Field>
         </div>
       </Section>
@@ -389,55 +335,52 @@ export function CompanySettings() {
         <Field
           label="PAN"
           htmlFor="pan"
-          error={errors.pan}
+          error={errors.pan?.message}
           hint="Ten characters, as issued"
         >
           <Input
             id="pan"
             className="uppercase tabular-nums"
             maxLength={10}
-            value={draft.pan}
-            onChange={(e) => set("pan", e.target.value.toUpperCase())}
+            {...register("pan", {
+              setValueAs: (value: string) => value.trim().toUpperCase(),
+            })}
           />
         </Field>
-        <Field label="Bank" htmlFor="bankName" error={errors["bank.name"]}>
-          <Input
-            id="bankName"
-            value={draft.bank.name}
-            onChange={(e) => setBank("name", e.target.value)}
-          />
+        <Field
+          label="Bank"
+          htmlFor="bankName"
+          error={errors.bank?.name?.message}
+        >
+          <Input id="bankName" {...register("bank.name")} />
         </Field>
         <Field
           label="Branch"
           htmlFor="bankBranch"
-          error={errors["bank.branch"]}
+          error={errors.bank?.branch?.message}
         >
-          <Input
-            id="bankBranch"
-            value={draft.bank.branch}
-            onChange={(e) => setBank("branch", e.target.value)}
-          />
+          <Input id="bankBranch" {...register("bank.branch")} />
         </Field>
         <Field
           label="A/C No."
           htmlFor="accountNo"
-          error={errors["bank.accountNo"]}
+          error={errors.bank?.accountNo?.message}
         >
           <Input
             id="accountNo"
             inputMode="numeric"
             className="tabular-nums"
-            value={draft.bank.accountNo}
-            onChange={(e) => setBank("accountNo", e.target.value)}
+            {...register("bank.accountNo")}
           />
         </Field>
-        <Field label="IFSC" htmlFor="ifsc" error={errors["bank.ifsc"]}>
+        <Field label="IFSC" htmlFor="ifsc" error={errors.bank?.ifsc?.message}>
           <Input
             id="ifsc"
             className="uppercase tabular-nums"
             maxLength={11}
-            value={draft.bank.ifsc}
-            onChange={(e) => setBank("ifsc", e.target.value.toUpperCase())}
+            {...register("bank.ifsc", {
+              setValueAs: (value: string) => value.trim().toUpperCase(),
+            })}
           />
         </Field>
       </Section>
@@ -446,37 +389,57 @@ export function CompanySettings() {
         title="Booking"
         description="What a fresh bilty or slip starts out with before the clerk touches it."
       >
-        <Field
-          label="Station booked from"
-          htmlFor="origin"
-          hint="Fills the From box on a new L.R. and slip"
-        >
-          <Select
-            value={draft.origin}
-            onValueChange={(value) => value && set("origin", value)}
-          >
-            <SelectTrigger id="origin" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATIONS.map((station) => (
-                <SelectItem key={station} value={station}>
-                  {station}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <ListField
-          label="Booking offices"
-          id="bookingOffice"
-          itemLabel="Booking office"
-          addLabel="Add office"
-          placeholder="Odhav, Ahmedabad"
-          error={errors.bookingOffices}
-          hint="The first is where a new bilty is booked"
-          values={draft.bookingOffices}
-          onValuesChange={(values) => set("bookingOffices", values)}
+        {/* Through a Controller rather than `watch("origin")`: watch returns a
+            fresh function on every render, which stops the React Compiler
+            memoising this whole screen. A Controller subscribes to the one
+            field instead. */}
+        <Controller
+          control={control}
+          name="origin"
+          render={({ field, fieldState }) => (
+            <Field
+              label="Station booked from"
+              htmlFor="origin"
+              error={fieldState.error?.message}
+              hint="Fills the From box on a new L.R. and slip"
+            >
+              <Select
+                value={field.value}
+                // A Select that has been dismissed rather than chosen from
+                // reports no value; the station it already had stands.
+                onValueChange={(value) => value && field.onChange(value)}
+              >
+                <SelectTrigger id="origin" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATIONS.map((station) => (
+                    <SelectItem key={station} value={station}>
+                      {station}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+        />
+        <Controller
+          control={control}
+          name="bookingOffices"
+          render={({ field, fieldState }) => (
+            <ListField
+              label="Booking offices"
+              id="bookingOffice"
+              itemLabel="Booking office"
+              addLabel="Add office"
+              placeholder="Odhav, Ahmedabad"
+              hint="The first is where a new bilty is booked"
+              values={field.value}
+              onValuesChange={field.onChange}
+              error={listError(fieldState.error)}
+              itemErrors={rowErrors(errors.bookingOffices)}
+            />
+          )}
         />
       </Section>
 
@@ -509,33 +472,32 @@ export function CompanySettings() {
           to save — buttons that come and go shove the ones beside them. */}
       <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t bg-background/85 px-4 py-3 backdrop-blur lg:-mx-6 lg:px-6">
         <p className="text-xs text-muted-foreground">
-          {dirty
+          {isDirty
             ? "Unsaved changes"
-            : edited
-              ? "Saved in this browser"
+            : company.isEdited
+              ? "Saved for the office"
               : "Running on the printed letterhead"}
         </p>
         <div className="flex flex-wrap gap-2">
           <Button
+            type="button"
             variant="ghost"
-            disabled={!edited}
+            disabled={!company.isEdited || busy}
             onClick={() => setConfirmRestore(true)}
           >
             <RotateCcwIcon data-icon="inline-start" />
             Restore printed letterhead
           </Button>
           <Button
+            type="button"
             variant="outline"
-            disabled={!dirty}
-            onClick={() => {
-              setDraft(current)
-              setErrors({})
-            }}
+            disabled={!isDirty || busy}
+            onClick={() => reset(letterheadOf(company))}
           >
             Discard
           </Button>
-          <Button disabled={!dirty} onClick={handleSave}>
-            Save letterhead
+          <Button type="submit" disabled={!isDirty || busy}>
+            {save.isPending ? "Saving…" : "Save letterhead"}
           </Button>
         </div>
       </div>
@@ -547,20 +509,60 @@ export function CompanySettings() {
               Restore the printed letterhead for {company.name}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Every edit saved in this browser is dropped and the firm goes back
-              to the details transcribed from its own book. Documents already
-              printed are unaffected; ones printed from here on carry the
-              restored letterhead.
+              Every edit the office has saved is dropped and the firm goes back
+              to the details transcribed from its own book — for every desk, not
+              just this one. Documents already printed are unaffected; ones
+              printed from here on carry the restored letterhead.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep my edits</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleRestore}>
+            <AlertDialogCancel>Keep the edits</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void handleRestore()}
+            >
               Restore letterhead
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </form>
   )
+}
+
+/**
+ * How react-hook-form reports an array field.
+ *
+ * When only the list is wrong it is a plain `FieldError`. When the rows are
+ * wrong it becomes that error *merged with* an array of per-row errors — one
+ * value that is both an object and a list, which is why the two readers below
+ * take the same type and pull different things out of it.
+ */
+type ArrayFieldError =
+  FieldError | Merge<FieldError, (FieldError | undefined)[]> | undefined
+
+/**
+ * The message about a list itself rather than about one of its rows — that it
+ * is empty, or longer than the letterhead has room for.
+ *
+ * Filed against the array, then moved to `root` once a row has an error of its
+ * own, so both places are looked at.
+ */
+function listError(error: ArrayFieldError): string | undefined {
+  return error?.root?.message ?? error?.message
+}
+
+/**
+ * The message on each row, by position, for the rows that have one.
+ *
+ * The cast is the merged type above being unpicked: TypeScript will not narrow
+ * an object-and-array intersection through `Array.isArray`, but the check has
+ * still done its job — past it, this is the per-row array.
+ */
+function rowErrors(
+  errors: ArrayFieldError
+): (string | undefined)[] | undefined {
+  if (!Array.isArray(errors)) return undefined
+
+  return (errors as (FieldError | undefined)[]).map((error) => error?.message)
 }
