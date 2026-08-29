@@ -62,6 +62,16 @@ export function RecentBiltiesCard({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {bilties.length === 0 && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={6} className="h-28 text-center">
+                  <p className="text-sm font-medium">Nothing booked yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    The register is empty — book the first bilty.
+                  </p>
+                </TableCell>
+              </TableRow>
+            )}
             {bilties.map((bilty) => (
               <TableRow key={bilty.id}>
                 <TableCell className="font-medium tabular-nums">

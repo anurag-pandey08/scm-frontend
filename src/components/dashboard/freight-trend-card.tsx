@@ -39,12 +39,16 @@ export function FreightTrendCard({
   changePct,
 }: {
   data: MonthPoint[]
-  changePct: number
+  /** null where the month before was quiet — see `monthOverMonth`. */
+  changePct: number | null
 }) {
   const first = data[0]
   const last = data[data.length - 1]
-  const rising = changePct >= 0
-  const Trend = rising ? TrendingUpIcon : TrendingDownIcon
+  // The trend always ends with the month in progress, so the last bar is a
+  // part-month and the line under the chart has to say so.
+  const previous = data[data.length - 2]
+  const Trend =
+    changePct !== null && changePct < 0 ? TrendingDownIcon : TrendingUpIcon
 
   // h-full down the whole chain, so the card fills its grid track and the plot
   // takes whatever height the neighbouring card sets.
@@ -151,14 +155,23 @@ export function FreightTrendCard({
             </TabsContent>
           </div>
 
+          {/* A percentage against a month with nothing in it is either
+              infinity or an invention, so the line says what it can instead. */}
           <p className="mt-3 flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
             <Trend className="size-3.5" aria-hidden />
-            <span>
-              <span className="font-medium text-foreground">
-                {formatPercent(changePct)}
-              </span>{" "}
-              in {last.fullLabel} against the month before
-            </span>
+            {changePct === null ? (
+              <span>
+                Nothing booked in {previous.fullLabel} to compare{" "}
+                {last.fullLabel} against
+              </span>
+            ) : (
+              <span>
+                <span className="font-medium text-foreground">
+                  {formatPercent(changePct)}
+                </span>{" "}
+                — {last.fullLabel} so far, against all of {previous.fullLabel}
+              </span>
+            )}
           </p>
         </CardContent>
       </Tabs>

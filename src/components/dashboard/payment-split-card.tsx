@@ -31,7 +31,13 @@ const config = {
   tbb: { label: "TBB", color: PAYMENT_COLOR.TBB },
 } satisfies ChartConfig
 
-export function PaymentSplitCard({ slices }: { slices: PaymentSlice[] }) {
+export function PaymentSplitCard({
+  slices,
+  days,
+}: {
+  slices: PaymentSlice[]
+  days: number
+}) {
   const total = slices.reduce((sum, s) => sum + s.freight, 0)
   const data = slices.map((s) => ({
     ...s,
@@ -44,72 +50,78 @@ export function PaymentSplitCard({ slices }: { slices: PaymentSlice[] }) {
       <CardHeader>
         <CardTitle>Payment terms</CardTitle>
         <CardDescription>
-          Share of freight booked in the last 30 days
+          Share of freight booked in the last {days} days
         </CardDescription>
       </CardHeader>
 
       <CardContent>
-        <ChartContainer
-          config={config}
-          className="mx-auto aspect-square h-[190px]"
-        >
-          <PieChart>
-            <ChartTooltip
-              content={
-                <ChartTooltipContent
-                  nameKey="key"
-                  formatter={(value) => (
-                    <span className="text-foreground tabular-nums">
-                      {formatINR(Number(value))}
-                    </span>
-                  )}
-                />
-              }
-            />
-            <Pie
-              data={data}
-              dataKey="freight"
-              nameKey="key"
-              innerRadius={58}
-              outerRadius={88}
-              paddingAngle={2}
-              /* A surface-coloured gap, not a border, separates the arcs */
-              stroke="var(--card)"
-              strokeWidth={2}
-            >
-              {data.map((slice) => (
-                <Cell key={slice.key} fill={slice.fill} />
-              ))}
-              <Label
-                content={({ viewBox }) => {
-                  if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) {
-                    return null
-                  }
-                  const cx = Number(viewBox.cx)
-                  const cy = Number(viewBox.cy)
-                  return (
-                    <text x={cx} y={cy} textAnchor="middle">
-                      <tspan
-                        x={cx}
-                        y={cy - 4}
-                        className="fill-foreground text-lg font-semibold"
-                      >
-                        {formatINRCompact(total)}
-                      </tspan>
-                      <tspan
-                        x={cx}
-                        y={cy + 14}
-                        className="fill-muted-foreground text-xs"
-                      >
-                        booked
-                      </tspan>
-                    </text>
-                  )
-                }}
+        {total === 0 ? (
+          <p className="flex h-[190px] items-center justify-center text-center text-sm text-muted-foreground">
+            No freight booked in this window.
+          </p>
+        ) : (
+          <ChartContainer
+            config={config}
+            className="mx-auto aspect-square h-[190px]"
+          >
+            <PieChart>
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    nameKey="key"
+                    formatter={(value) => (
+                      <span className="text-foreground tabular-nums">
+                        {formatINR(Number(value))}
+                      </span>
+                    )}
+                  />
+                }
               />
-            </Pie>
-          </PieChart>
-        </ChartContainer>
+              <Pie
+                data={data}
+                dataKey="freight"
+                nameKey="key"
+                innerRadius={58}
+                outerRadius={88}
+                paddingAngle={2}
+                /* A surface-coloured gap, not a border, separates the arcs */
+                stroke="var(--card)"
+                strokeWidth={2}
+              >
+                {data.map((slice) => (
+                  <Cell key={slice.key} fill={slice.fill} />
+                ))}
+                <Label
+                  content={({ viewBox }) => {
+                    if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) {
+                      return null
+                    }
+                    const cx = Number(viewBox.cx)
+                    const cy = Number(viewBox.cy)
+                    return (
+                      <text x={cx} y={cy} textAnchor="middle">
+                        <tspan
+                          x={cx}
+                          y={cy - 4}
+                          className="fill-foreground text-lg font-semibold"
+                        >
+                          {formatINRCompact(total)}
+                        </tspan>
+                        <tspan
+                          x={cx}
+                          y={cy + 14}
+                          className="fill-muted-foreground text-xs"
+                        >
+                          booked
+                        </tspan>
+                      </text>
+                    )
+                  }}
+                />
+              </Pie>
+            </PieChart>
+          </ChartContainer>
+        )}
 
         {/* Legend doubles as the table view — no value lives only in a tooltip */}
         {/* Two lines per row rather than four fixed-width columns, so the

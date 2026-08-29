@@ -4,12 +4,17 @@ import type { Bilty, BiltyStatus, PaymentType, Party, RiskType } from "./types"
 
 /**
  * Static seed data standing in for the L.R. books — one book per firm, kept
- * wholly apart. Replace with API calls when the backend lands; everything
- * downstream already asks for a firm's data by slug rather than importing a
- * single register, so only this file has to change.
+ * wholly apart.
  *
- * Both books are anchored to the same date so the two dashboards cover the
- * same thirty days and can be read against each other.
+ * The bilty register and the dashboard have been off this file since they were
+ * given a database: both read one firm's book through the API, and the seeded
+ * database was generated from what is here so the figures did not change on
+ * the way. What still stands on it is the screens that have no backend yet —
+ * the invoices, the loading slips and the trip register — and the parties and
+ * consignments those quote from an L.R.
+ *
+ * Everything downstream asks for a firm's data by slug rather than importing a
+ * single register, which is what made the register's move a change to one file.
  */
 
 /** The day the datasets are anchored to; every "last 30 days" figure counts back from here. */
@@ -44,7 +49,6 @@ interface Book {
   lrFloor: number
   /** Party invoice numbers are seeded a fixed distance from the L.R. number. */
   invoiceBase: number
-  monthlyFreight: { month: string; freight: number }[]
   fleet: { owned: number; attached: number }
   consignors: Record<string, Party>
   consignees: Record<string, Party>
@@ -58,7 +62,7 @@ interface Book {
  * stay one interchangeable shape downstream.
  */
 function book<S extends string, C extends string>(
-  spec: Pick<Book, "lrFloor" | "invoiceBase" | "monthlyFreight" | "fleet">,
+  spec: Pick<Book, "lrFloor" | "invoiceBase" | "fleet">,
   consignors: Record<S, Party>,
   consignees: Record<C, Party>,
   rows: Row<S, C>[]
@@ -211,25 +215,6 @@ const SCM_BOOK = book(
   {
     lrFloor: 3000,
     invoiceBase: 1200,
-    /**
-     * Freight booked per month for the twelve complete months before the anchor
-     * date. Static history — the current partial month is deliberately excluded
-     * so the last bar is never a half-month stub.
-     */
-    monthlyFreight: [
-      { month: "2025-08", freight: 412000 },
-      { month: "2025-09", freight: 468000 },
-      { month: "2025-10", freight: 596000 },
-      { month: "2025-11", freight: 634000 },
-      { month: "2025-12", freight: 521000 },
-      { month: "2026-01", freight: 449000 },
-      { month: "2026-02", freight: 507000 },
-      { month: "2026-03", freight: 688000 },
-      { month: "2026-04", freight: 542000 },
-      { month: "2026-05", freight: 575000 },
-      { month: "2026-06", freight: 619000 },
-      { month: "2026-07", freight: 726000 },
-    ],
     fleet: { owned: 8, attached: 14 },
   },
   SCM_CONSIGNORS,
@@ -381,20 +366,6 @@ const SUR_BOOK = book(
   {
     lrFloor: 7400,
     invoiceBase: 640,
-    monthlyFreight: [
-      { month: "2025-08", freight: 238000 },
-      { month: "2025-09", freight: 271000 },
-      { month: "2025-10", freight: 344000 },
-      { month: "2025-11", freight: 362000 },
-      { month: "2025-12", freight: 305000 },
-      { month: "2026-01", freight: 268000 },
-      { month: "2026-02", freight: 296000 },
-      { month: "2026-03", freight: 401000 },
-      { month: "2026-04", freight: 318000 },
-      { month: "2026-05", freight: 337000 },
-      { month: "2026-06", freight: 359000 },
-      { month: "2026-07", freight: 428000 },
-    ],
     fleet: { owned: 5, attached: 9 },
   },
   SUR_CONSIGNORS,
@@ -497,13 +468,6 @@ export function nextLrNo(company: CompanySlug, bilties: Bilty[]): string {
     BOOKS[company].lrFloor
   )
   return String(highest + 1)
-}
-
-/** Freight booked per month, for the twelve complete months before the anchor date. */
-export function getMonthlyFreight(
-  company: CompanySlug
-): { month: string; freight: number }[] {
-  return BOOKS[company].monthlyFreight
 }
 
 /** Fleet on the road — used by the dashboard tiles. */
