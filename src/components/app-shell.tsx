@@ -17,6 +17,8 @@ import {
 
 import { useCompany } from "@/components/company-provider"
 import { CompanySwitcher } from "@/components/company-switcher"
+import { InstallApp } from "@/components/pwa/install-app"
+import { OfflineIndicator } from "@/components/pwa/offline-indicator"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
   DropdownMenu,
@@ -254,10 +256,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <p className="ml-auto hidden text-xs text-muted-foreground sm:block">
+          <p className="ml-auto hidden text-xs text-muted-foreground lg:block">
             {company.jurisdiction}
           </p>
-          <div className="ml-auto sm:ml-0">
+          <div className="ml-auto flex items-center gap-2 lg:ml-0">
+            <OfflineIndicator />
+            <InstallApp />
             <ThemeToggle />
           </div>
         </header>
