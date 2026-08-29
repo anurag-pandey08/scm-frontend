@@ -7,15 +7,21 @@ import {
   PencilIcon,
   PlusIcon,
   ScrollTextIcon,
-  SearchIcon,
   Trash2Icon,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { PaymentBadge, StatusBadge } from "@/components/bilty/badges"
 import { BiltyDetailSheet } from "@/components/bilty/bilty-detail-sheet"
+import { BiltyFilters } from "@/components/bilty/bilty-filters"
 import { BiltyFormDialog } from "@/components/bilty/bilty-form-dialog"
 import { BiltyLrDialog } from "@/components/bilty/bilty-lr-dialog"
+import { BiltyPagination } from "@/components/bilty/bilty-pagination"
+import {
+  EMPTY_PAGE,
+  useBiltyMutations,
+  useBiltyPage,
+} from "@/components/bilty/use-bilties"
 import { useCompany } from "@/components/company-provider"
 import {
   AlertDialog,
@@ -36,15 +42,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -54,87 +51,42 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { getSeedBilties, nextLrNo, TODAY } from "@/lib/data"
+import { ApiError } from "@/lib/api/client"
+import type { RegisterQuery } from "@/lib/api/bilties"
 import { formatDate, formatINR, formatNumber } from "@/lib/format"
-import {
-  BILTY_STATUSES,
-  PAYMENT_TYPES,
-  balanceDue,
-  emptyBilty,
-  grossTotal,
-  type Bilty,
-  type BiltyStatus,
-  type PaymentType,
-} from "@/lib/types"
-
-type StatusFilter = BiltyStatus | "all"
-type PaymentFilter = PaymentType | "all"
+import type { BiltyInput } from "@/lib/schemas/bilty"
+import { grossTotal, type Bilty } from "@/lib/types"
 
 /**
- * The filter options, each with the label the closed trigger shows for it.
- * `Select` is handed these as `items` so the trigger can name the choice —
- * without them it falls back to printing the raw value, and "all" is not
- * what the row reads as.
+ * The L.R. book, as a register.
+ *
+ * Filtering, sorting, paging and the footer totals are all Postgres's — the
+ * page arrives already narrowed, already counted and already added up, and
+ * this renders it. That is a change from what it used to do: it once held the
+ * whole book in memory and filtered it in the browser, which is fine for
+ * twenty-nine consignments and not for a year of them.
+ *
+ * What is left here is the register as a document — the rows, the actions on a
+ * row, and the four dialogs those actions open.
  */
-const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
-  { value: "all", label: "All statuses" },
-  ...BILTY_STATUSES.map((status) => ({ value: status, label: status })),
-]
-
-const PAYMENT_FILTERS: { value: PaymentFilter; label: string }[] = [
-  { value: "all", label: "All terms" },
-  ...PAYMENT_TYPES.map((type) => ({ value: type, label: type })),
-]
-
-function matches(bilty: Bilty, query: string) {
-  if (!query) return true
-  const needle = query.trim().toLowerCase()
-  return [
-    bilty.lrNo,
-    bilty.lorryNo,
-    bilty.from,
-    bilty.to,
-    bilty.consignor.name,
-    bilty.consignee.name,
-    bilty.contents,
-    bilty.invoiceNo,
-    bilty.eWayBillNo,
-  ].some((field) => field.toLowerCase().includes(needle))
-}
-
-const byNewest = (a: Bilty, b: Bilty) =>
-  a.lrDate === b.lrDate
-    ? Number(b.lrNo) - Number(a.lrNo)
-    : a.lrDate < b.lrDate
-      ? 1
-      : -1
-
-export function BiltyRegister() {
+export function BiltyRegister({ query }: { query: RegisterQuery }) {
   // Defaults for a fresh L.R. come off whichever firm's book is open, and
   // follow the letterhead if the office edits it.
   const company = useCompany()
 
-  const blank = React.useCallback(
-    (lrNo: string) =>
-      emptyBilty(lrNo, TODAY, {
-        from: company.origin,
-        bookingOffice: company.bookingOffices[0],
-      }),
-    [company]
+  const { data, isPlaceholderData, isError, error } = useBiltyPage(
+    company.slug,
+    query
   )
+  const { create, update, remove } = useBiltyMutations(company.slug)
 
-  const [bilties, setBilties] = React.useState<Bilty[]>(() =>
-    getSeedBilties(company.slug)
-  )
-  const [query, setQuery] = React.useState("")
-  const [status, setStatus] = React.useState<StatusFilter>("all")
-  const [payment, setPayment] = React.useState<PaymentFilter>("all")
+  const { bilties, meta } = data ?? EMPTY_PAGE
 
   const [form, setForm] = React.useState<{
     open: boolean
-    mode: "create" | "edit"
-    bilty: Bilty
-  }>(() => ({ open: false, mode: "create", bilty: blank("") }))
+    /** The record being amended, or null when a new one is being booked. */
+    editing: Bilty | null
+  }>({ open: false, editing: null })
 
   const [detail, setDetail] = React.useState<Bilty | null>(null)
   const [detailOpen, setDetailOpen] = React.useState(false)
@@ -142,96 +94,44 @@ export function BiltyRegister() {
   const [lrOpen, setLrOpen] = React.useState(false)
   const [pendingDelete, setPendingDelete] = React.useState<Bilty | null>(null)
 
-  const visible = React.useMemo(
-    () =>
-      bilties
-        .filter(
-          (b) =>
-            matches(b, query) &&
-            (status === "all" || b.status === status) &&
-            (payment === "all" || b.paymentType === payment)
-        )
-        .sort(byNewest),
-    [bilties, query, status, payment]
-  )
+  const filtersApplied =
+    query.q !== "" || query.status !== "all" || query.payment !== "all"
 
-  const totals = React.useMemo(
-    () =>
-      visible.reduce(
-        (acc, b) => {
-          if (b.status === "Cancelled") return acc
-          acc.gross += grossTotal(b.charges)
-          acc.balance += balanceDue(b.charges)
-          return acc
-        },
-        { gross: 0, balance: 0 }
-      ),
-    [visible]
-  )
+  async function handleSave(input: BiltyInput): Promise<void> {
+    const editing = form.editing
 
-  const takenLrNos = React.useMemo(
-    () => bilties.filter((b) => b.id !== form.bilty.id).map((b) => b.lrNo),
-    [bilties, form.bilty.id]
-  )
+    if (editing) {
+      await update.mutateAsync({ id: editing.id, input })
+      toast.success(`Bilty ${input.lrNo} updated`)
+    } else {
+      await create.mutateAsync(input)
+      toast.success(`Bilty ${input.lrNo} saved`)
+    }
 
-  function openCreate() {
-    setForm({
-      open: true,
-      mode: "create",
-      bilty: blank(nextLrNo(company.slug, bilties)),
-    })
+    setForm({ open: false, editing: null })
   }
 
-  function openEdit(bilty: Bilty) {
-    // A fresh copy each time, so reopening the same record always reloads it
-    // rather than resuming a half-finished draft.
-    setForm({ open: true, mode: "edit", bilty: structuredClone(bilty) })
-  }
-
-  function openDetail(bilty: Bilty) {
-    setDetail(bilty)
-    setDetailOpen(true)
-  }
-
-  function openLr(bilty: Bilty) {
-    setLr(bilty)
-    setLrOpen(true)
-  }
-
-  function handleSave(saved: Bilty) {
-    setBilties((current) => {
-      const exists = current.some((b) => b.id === saved.id)
-      return exists
-        ? current.map((b) => (b.id === saved.id ? saved : b))
-        : [saved, ...current]
-    })
-    setForm((f) => ({ ...f, open: false }))
-    toast.success(
-      form.mode === "create"
-        ? `Bilty ${saved.lrNo} saved`
-        : `Bilty ${saved.lrNo} updated`
-    )
-  }
-
-  function handleDelete() {
+  async function handleDelete() {
     const removed = pendingDelete
     if (!removed) return
-    setBilties((current) => current.filter((b) => b.id !== removed.id))
-    setPendingDelete(null)
-    toast.success(`Bilty ${removed.lrNo} deleted`, {
-      action: {
-        label: "Undo",
-        onClick: () =>
-          setBilties((current) =>
-            current.some((b) => b.id === removed.id)
-              ? current
-              : [removed, ...current]
-          ),
-      },
-    })
-  }
 
-  const filtersApplied = query !== "" || status !== "all" || payment !== "all"
+    setPendingDelete(null)
+
+    try {
+      await remove.mutateAsync(removed.id)
+      // No undo. It used to offer one, because putting a row back into a list
+      // in memory is free; putting a deleted consignment back into the book
+      // means booking it again, under a number that may since have been taken.
+      // The dialog says to mark it Cancelled instead, which is the real undo.
+      toast.success(`Bilty ${removed.lrNo} deleted`)
+    } catch (cause) {
+      toast.error(
+        cause instanceof ApiError
+          ? cause.message
+          : `Could not delete bilty ${removed.lrNo}`
+      )
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -244,92 +144,27 @@ export function BiltyRegister() {
             Every lorry receipt in the book — book, amend and close consignments
           </p>
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={() => setForm({ open: true, editing: null })}>
           <PlusIcon data-icon="inline-start" />
           New bilty
         </Button>
       </header>
 
-      {/* One filter row above everything it scopes */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="grid min-w-56 flex-1 gap-1.5">
-          <Label htmlFor="search" className="sr-only">
-            Search bilties
-          </Label>
-          <div className="relative">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="search"
-              className="pl-8"
-              placeholder="L.R. no., party, lorry, destination, e-way bill…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-        </div>
+      <BiltyFilters query={query} />
 
-        <div className="grid gap-1.5">
-          <Label htmlFor="filter-status" className="sr-only">
-            Status
-          </Label>
-          <Select
-            items={STATUS_FILTERS}
-            value={status}
-            onValueChange={(v) => v && setStatus(v)}
-          >
-            <SelectTrigger id="filter-status" className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_FILTERS.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label htmlFor="filter-payment" className="sr-only">
-            Freight terms
-          </Label>
-          <Select
-            items={PAYMENT_FILTERS}
-            value={payment}
-            onValueChange={(v) => v && setPayment(v)}
-          >
-            <SelectTrigger id="filter-payment" className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PAYMENT_FILTERS.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Always in the row, and flat until there is something to clear. A
-            button that comes and goes shoves the controls beside it sideways
-            every time a filter is set or dropped. */}
-        <Button
-          variant="ghost"
-          disabled={!filtersApplied}
-          onClick={() => {
-            setQuery("")
-            setStatus("all")
-            setPayment("all")
-          }}
+      {/* Dimmed rather than emptied while the next page is fetched — the rows
+          on screen are still the right answer to the previous question, and
+          blanking them makes every filter change look like a reload. */}
+      <Card
+        className="py-0"
+        data-pending={isPlaceholderData ? "" : undefined}
+        aria-busy={isPlaceholderData}
+      >
+        <Table
+          className={
+            isPlaceholderData ? "opacity-60 transition-opacity" : undefined
+          }
         >
-          Clear
-        </Button>
-      </div>
-
-      <Card className="py-0">
-        <Table>
           <TableHeader>
             <TableRow>
               <TableHead>L.R. No.</TableHead>
@@ -346,19 +181,27 @@ export function BiltyRegister() {
           </TableHeader>
 
           <TableBody>
-            {visible.length === 0 ? (
+            {bilties.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={10} className="h-28 text-center">
-                  <p className="text-sm font-medium">No bilties found</p>
+                  <p className="text-sm font-medium">
+                    {isError
+                      ? "Could not read the register"
+                      : "No bilties found"}
+                  </p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {filtersApplied
-                      ? "Nothing matches these filters."
-                      : "The register is empty — book the first bilty."}
+                    {isError
+                      ? error instanceof ApiError
+                        ? error.message
+                        : "Something went wrong reading the book."
+                      : filtersApplied
+                        ? "Nothing matches these filters."
+                        : "The register is empty — book the first bilty."}
                   </p>
                 </TableCell>
               </TableRow>
             ) : (
-              visible.map((bilty) => (
+              bilties.map((bilty) => (
                 <TableRow key={bilty.id}>
                   <TableCell className="font-medium tabular-nums">
                     {bilty.lrNo}
@@ -404,15 +247,29 @@ export function BiltyRegister() {
                         <EllipsisIcon />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem onClick={() => openLr(bilty)}>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setLr(bilty)
+                            setLrOpen(true)
+                          }}
+                        >
                           <ScrollTextIcon />
                           View bilty
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openDetail(bilty)}>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setDetail(bilty)
+                            setDetailOpen(true)
+                          }}
+                        >
                           <EyeIcon />
                           Details
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openEdit(bilty)}>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            setForm({ open: true, editing: bilty })
+                          }
+                        >
                           <PencilIcon />
                           Edit
                         </DropdownMenuItem>
@@ -432,18 +289,21 @@ export function BiltyRegister() {
             )}
           </TableBody>
 
-          {visible.length > 0 ? (
+          {bilties.length > 0 ? (
             <TableFooter>
               <TableRow className="hover:bg-transparent">
+                {/* The totals are of everything the filters match, not of the
+                    rows on this page — a clerk filtering to one party's To Pay
+                    consignments wants what that party owes altogether. */}
                 <TableCell colSpan={8}>
-                  {visible.length} of {bilties.length} bilties · balance to
-                  collect{" "}
+                  {formatNumber(meta.total)} of {formatNumber(meta.bookTotal)}{" "}
+                  bilties · balance to collect{" "}
                   <span className="tabular-nums">
-                    {formatINR(totals.balance)}
+                    {formatINR(meta.totals.balance)}
                   </span>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {formatINR(totals.gross)}
+                  {formatINR(meta.totals.gross)}
                 </TableCell>
                 <TableCell />
               </TableRow>
@@ -452,13 +312,22 @@ export function BiltyRegister() {
         </Table>
       </Card>
 
+      <BiltyPagination
+        query={query}
+        page={meta.page}
+        totalPages={meta.totalPages}
+        total={meta.total}
+      />
+
       <BiltyFormDialog
         open={form.open}
-        onOpenChange={(open) => setForm((f) => ({ ...f, open }))}
-        mode={form.mode}
-        initial={form.bilty}
+        onOpenChange={(open) =>
+          setForm((f) =>
+            open ? { ...f, open } : { open: false, editing: null }
+          )
+        }
+        editing={form.editing}
         company={company}
-        takenLrNos={takenLrNos}
         onSave={handleSave}
       />
 
@@ -467,7 +336,7 @@ export function BiltyRegister() {
         company={company}
         open={lrOpen}
         onOpenChange={setLrOpen}
-        onEdit={openEdit}
+        onEdit={(bilty) => setForm({ open: true, editing: bilty })}
       />
 
       <BiltyDetailSheet
@@ -475,7 +344,7 @@ export function BiltyRegister() {
         company={company}
         open={detailOpen}
         onOpenChange={setDetailOpen}
-        onEdit={openEdit}
+        onEdit={(bilty) => setForm({ open: true, editing: bilty })}
       />
 
       <AlertDialog
@@ -491,14 +360,18 @@ export function BiltyRegister() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               This removes the entry for {pendingDelete?.consignor.name} to{" "}
-              {pendingDelete?.to} from the register. If the consignment was
-              actually called off, mark it Cancelled instead so the L.R.
-              numbering stays unbroken.
+              {pendingDelete?.to} from the register, for every desk, and it
+              cannot be undone. If the consignment was actually called off, mark
+              it Cancelled instead so the L.R. numbering stays unbroken.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => void handleDelete()}
+            >
               Delete bilty
             </AlertDialogAction>
           </AlertDialogFooter>
