@@ -100,9 +100,20 @@ export function CompanySettings() {
 
   const [confirmRestore, setConfirmRestore] = React.useState(false)
 
+  // The letterhead in the cache is the one that counts. It changes on a save,
+  // on a restore, and when a refetch brings in an edit made at another desk —
+  // and in every one of those cases the form is holding a draft of details
+  // nobody is using any more, so it reloads.
+  const letterhead = letterheadOf(company)
+
   const form = useForm<LetterheadInput>({
     resolver: zodResolver(letterheadSchema),
-    defaultValues: letterheadOf(company),
+    defaultValues: letterhead,
+    // Reloads the inputs whenever the cached letterhead stops matching what
+    // they are holding. Calling `reset` from the render body does the same
+    // job a render too early, where it lands as a state update on the
+    // Controllers below while this component is still rendering.
+    values: letterhead,
     // Quiet until a field has been left once, then live — so a box is not
     // marked wrong while it is still being typed into for the first time.
     mode: "onTouched",
@@ -116,16 +127,6 @@ export function CompanySettings() {
     reset,
     setError,
   } = form
-
-  // The letterhead in the cache is the one that counts. It changes on a save,
-  // on a restore, and when a refetch brings in an edit made at another desk —
-  // and in every one of those cases the form is holding a draft of details
-  // nobody is using any more, so it reloads.
-  const [loaded, setLoaded] = React.useState(company)
-  if (company !== loaded) {
-    setLoaded(company)
-    reset(letterheadOf(company))
-  }
 
   const other = companies.find((firm) => firm.slug !== company.slug)
   const busy = isSubmitting || save.isPending || restore.isPending
@@ -458,6 +459,8 @@ export function CompanySettings() {
             <Button
               variant="outline"
               size="sm"
+              // Renders an <a>, so the primitive must not assume a <button>.
+              nativeButton={false}
               render={<Link href={`/${other.slug}/settings`} />}
             >
               Open its settings
@@ -492,7 +495,7 @@ export function CompanySettings() {
             type="button"
             variant="outline"
             disabled={!isDirty || busy}
-            onClick={() => reset(letterheadOf(company))}
+            onClick={() => reset(letterhead)}
           >
             Discard
           </Button>

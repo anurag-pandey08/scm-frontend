@@ -22,6 +22,8 @@ export default function NotFound() {
           <Button
             key={company.slug}
             variant="outline"
+            // Renders an <a>, so the primitive must not assume a <button>.
+            nativeButton={false}
             render={<Link href={`/${company.slug}/dashboard`} />}
           >
             {company.name}
