@@ -1,7 +1,18 @@
 "use client"
 
 import * as React from "react"
+import { zodResolver } from "@hookform/resolvers/zod"
+import {
+  Controller,
+  useForm,
+  useWatch,
+  type Control,
+  type FieldPath,
+  type UseFormRegisterReturn,
+} from "react-hook-form"
+import { toast } from "sonner"
 
+import { useNextLrNo } from "@/components/bilty/use-bilties"
 import { DateField } from "@/components/date-field"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,21 +33,20 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { ApiError } from "@/lib/api/client"
 import { STATIONS, type Company } from "@/lib/companies"
 import { formatINR } from "@/lib/format"
+import { biltyInputOf, biltySchema, type BiltyInput } from "@/lib/schemas/bilty"
 import {
   BILTY_STATUSES,
   PAYMENT_TYPES,
   RISK_TYPES,
-  balanceDue,
-  grossTotal,
+  emptyBilty,
   type Bilty,
-  type BiltyCharges,
-  type Party,
 } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Errors = Partial<Record<string, string>>
+type BiltyField = FieldPath<BiltyInput>
 
 function Field({
   label,
@@ -90,116 +100,303 @@ function Section({
   )
 }
 
-/** Money and count inputs: blank rather than a stubborn 0 when empty. */
-function NumberInput({
-  id,
-  value,
-  onValueChange,
-  step,
-  placeholder = "0",
+/**
+ * The three wrappers below exist because this form has sixty-odd boxes in it.
+ * Written out one at a time — a Field, a Controller, an input, an error read
+ * off a nested path — each box is a dozen lines, and the shape of the L.R.
+ * disappears under the plumbing. Wrapped, the form below reads as the printed
+ * page does: a list of what is on it.
+ */
+
+/** A plain text box, uncontrolled — react-hook-form reads it off the DOM. */
+function TextField({
+  label,
+  name,
+  registration,
+  error,
+  hint,
+  className,
+  inputClassName,
+  placeholder,
+  maxLength,
+  multiline,
 }: {
-  id: string
-  value: number
-  onValueChange: (value: number) => void
-  step?: string
+  label: string
+  name: string
+  registration: UseFormRegisterReturn
+  error?: string
+  hint?: string
+  className?: string
+  inputClassName?: string
   placeholder?: string
+  maxLength?: number
+  multiline?: boolean
+}) {
+  const Control = multiline ? Textarea : Input
+
+  return (
+    <Field
+      label={label}
+      htmlFor={name}
+      error={error}
+      hint={hint}
+      className={className}
+    >
+      <Control
+        id={name}
+        className={inputClassName}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        {...(multiline ? { rows: 2 } : {})}
+        {...registration}
+      />
+    </Field>
+  )
+}
+
+/**
+ * A money or count box: blank rather than a stubborn 0 when empty, and a
+ * number rather than a string when read.
+ *
+ * Controlled through a Controller because the value has to be a number in the
+ * form's data — `register` with `valueAsNumber` reports NaN for an empty box,
+ * and NaN in a charge column is worse than a zero.
+ */
+function NumberField({
+  label,
+  name,
+  control,
+  error,
+  hint,
+  step,
+  className,
+}: {
+  label: string
+  name: BiltyField
+  control: Control<BiltyInput>
+  error?: string
+  hint?: string
+  step?: string
+  className?: string
 }) {
   return (
-    <Input
-      id={id}
-      type="number"
-      inputMode="decimal"
-      min={0}
-      step={step}
-      placeholder={placeholder}
-      className="tabular-nums"
-      value={value === 0 ? "" : String(value)}
-      onChange={(event) => {
-        const parsed = Number(event.target.value)
-        onValueChange(Number.isFinite(parsed) && parsed >= 0 ? parsed : 0)
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => {
+        const value = typeof field.value === "number" ? field.value : 0
+
+        return (
+          <Field
+            label={label}
+            htmlFor={name}
+            error={error}
+            hint={hint}
+            className={className}
+          >
+            <Input
+              id={name}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step={step}
+              placeholder="0"
+              className="tabular-nums"
+              value={value === 0 ? "" : String(value)}
+              onBlur={field.onBlur}
+              onChange={(event) => {
+                const parsed = Number(event.target.value)
+                field.onChange(
+                  Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+                )
+              }}
+            />
+          </Field>
+        )
       }}
     />
   )
 }
 
+/** One of a fixed list — a station, a status, a set of freight terms. */
+function SelectField({
+  label,
+  name,
+  control,
+  options,
+  error,
+  hint,
+  placeholder,
+  className,
+}: {
+  label: string
+  name: BiltyField
+  control: Control<BiltyInput>
+  options: readonly string[]
+  error?: string
+  hint?: string
+  placeholder?: string
+  className?: string
+}) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <Field
+          label={label}
+          htmlFor={name}
+          error={error}
+          hint={hint}
+          className={className}
+        >
+          <Select
+            value={typeof field.value === "string" ? field.value : ""}
+            // A Select dismissed rather than chosen from reports no value; what
+            // was already there stands.
+            onValueChange={(value) => value && field.onChange(value)}
+          >
+            <SelectTrigger id={name} className="w-full">
+              <SelectValue placeholder={placeholder} />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+    />
+  )
+}
+
+/**
+ * The L.R. as a form — every box on the printed book, in the order it is
+ * printed in.
+ *
+ * Booking and amending are the same form. What differs is only where the
+ * opening values come from: an amendment loads the consignment, a new booking
+ * loads a blank one and asks the register what number is next. That question
+ * is asked as the dialog opens rather than kept ready, because the answer
+ * stops being true the moment the next desk books something.
+ */
 export function BiltyFormDialog({
   open,
   onOpenChange,
-  mode,
-  initial,
+  editing,
   company,
-  takenLrNos,
   onSave,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  mode: "create" | "edit"
-  initial: Bilty
+  /** The consignment being amended, or null when a new one is being booked. */
+  editing: Bilty | null
   /** Whose book is being written in — it owns the booking offices. */
   company: Company
-  /** L.R. numbers already in the book, excluding the record being edited. */
-  takenLrNos: string[]
-  onSave: (bilty: Bilty) => void
+  onSave: (input: BiltyInput) => Promise<void>
 }) {
-  const [draft, setDraft] = React.useState<Bilty>(initial)
-  const [errors, setErrors] = React.useState<Errors>({})
-  const [loaded, setLoaded] = React.useState<Bilty>(initial)
+  const creating = editing === null
 
-  // The caller hands over a fresh object every time the dialog is opened, so a
-  // changed identity means "start again from this record" — discard the draft.
-  if (initial !== loaded) {
-    setLoaded(initial)
-    setDraft(initial)
-    setErrors({})
+  // Only asked while a new bilty is being booked; an amendment keeps its own
+  // number.
+  const nextLrNo = useNextLrNo(company.slug, open && creating)
+
+  const blank = React.useCallback(
+    (lrNo: string) =>
+      biltyInputOf(
+        emptyBilty(lrNo, new Date().toISOString().slice(0, 10), {
+          from: company.origin,
+          bookingOffice: company.bookingOffices[0] ?? "",
+        })
+      ),
+    [company]
+  )
+
+  const form = useForm<BiltyInput>({
+    resolver: zodResolver(biltySchema),
+    defaultValues: editing ? biltyInputOf(editing) : blank(""),
+    mode: "onTouched",
+  })
+
+  const {
+    control,
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+    reset,
+    setError,
+    setValue,
+  } = form
+
+  // Reloads the form whenever the dialog is pointed at a different record —
+  // opened on another bilty, or switched from amending to booking. Without
+  // this the dialog reopens on the last consignment's figures.
+  const [loaded, setLoaded] = React.useState<Bilty | null>(editing)
+  const [wasOpen, setWasOpen] = React.useState(open)
+  if (open && (editing !== loaded || !wasOpen)) {
+    setLoaded(editing)
+    setWasOpen(true)
+    reset(editing ? biltyInputOf(editing) : blank(""))
   }
+  if (!open && wasOpen) setWasOpen(false)
 
-  const set = <K extends keyof Bilty>(key: K, value: Bilty[K]) =>
-    setDraft((d) => ({ ...d, [key]: value }))
+  // The number arrives after the dialog has already opened, so it is written in
+  // when it lands rather than waited for — the clerk can be typing the party's
+  // name while the register is still being asked.
+  React.useEffect(() => {
+    if (open && creating && nextLrNo.data) {
+      setValue("lrNo", nextLrNo.data)
+    }
+  }, [open, creating, nextLrNo.data, setValue])
 
-  const setParty = (
-    which: "consignor" | "consignee",
-    key: keyof Party,
-    value: string
-  ) => setDraft((d) => ({ ...d, [which]: { ...d[which], [key]: value } }))
+  // Watched rather than read off `getValues`, because the totals below have to
+  // move as the charge boxes are typed into.
+  const charges = useWatch({ control, name: "charges" })
+  const gross =
+    charges.freight +
+    charges.aoc +
+    charges.hamali +
+    charges.stCharges +
+    charges.otherCharges
+  const balance = gross - charges.advance
 
-  const setCharge = (key: keyof BiltyCharges, value: number) =>
-    setDraft((d) => ({ ...d, charges: { ...d.charges, [key]: value } }))
+  const onSubmit = handleSubmit(async (input) => {
+    try {
+      await onSave(input)
+    } catch (cause) {
+      if (!(cause instanceof ApiError)) {
+        toast.error("Could not save the bilty")
+        return
+      }
 
-  const gross = grossTotal(draft.charges)
-  const balance = balanceDue(draft.charges)
+      // The server addresses fields the way this form does — `charges.advance`,
+      // `consignor.name` — so a rejection lands on the box that caused it.
+      if (cause.fieldErrors) {
+        for (const [path, messages] of Object.entries(cause.fieldErrors)) {
+          if (path === "_form" || !messages[0]) continue
+          setError(path as BiltyField, { type: "server", message: messages[0] })
+        }
+      }
 
-  function handleSave() {
-    const next: Errors = {}
-    const lrNo = draft.lrNo.trim()
-    if (!lrNo) next.lrNo = "L.R. number is required"
-    else if (takenLrNos.includes(lrNo))
-      next.lrNo = `L.R. ${lrNo} is already in the register`
-    if (!draft.lrDate) next.lrDate = "Date is required"
-    if (!draft.to.trim()) next.to = "Destination is required"
-    if (!draft.consignor.name.trim())
-      next.consignorName = "Consignor is required"
-    if (!draft.consignee.name.trim())
-      next.consigneeName = "Consignee is required"
-    if (draft.charges.advance > gross)
-      next.advance = "Advance cannot exceed the gross total"
+      // A number taken since the form was opened comes back as a conflict
+      // rather than a field error, and it is about one box.
+      if (cause.status === 409) {
+        setError("lrNo", { type: "server", message: cause.message })
+      }
 
-    setErrors(next)
-    if (Object.keys(next).length > 0) return
-
-    onSave({
-      ...draft,
-      lrNo,
-      id: draft.id || `bilty-${lrNo}`,
-      charges: { ...draft.charges },
-    })
-  }
+      toast.error(cause.message)
+    }
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "New bilty" : `Edit bilty ${initial.lrNo}`}
+            {creating ? "New bilty" : `Edit bilty ${editing.lrNo}`}
           </DialogTitle>
           <DialogDescription>
             Fields follow the printed L.R. book. Goods are carried at
@@ -207,301 +404,236 @@ export function BiltyFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="-mx-4 overflow-y-auto px-4">
+        <form
+          id="bilty-form"
+          onSubmit={(event) => void onSubmit(event)}
+          className="-mx-4 overflow-y-auto px-4"
+        >
           <Section title="Consignment">
-            <Field label="L.R. No." htmlFor="lrNo" error={errors.lrNo}>
-              <Input
-                id="lrNo"
-                className="tabular-nums"
-                value={draft.lrNo}
-                onChange={(e) => set("lrNo", e.target.value)}
-              />
-            </Field>
-            <Field label="Date" htmlFor="lrDate" error={errors.lrDate}>
-              <DateField
-                id="lrDate"
-                value={draft.lrDate}
-                onValueChange={(v) => set("lrDate", v)}
-              />
-            </Field>
-            <Field label="Lorry No." htmlFor="lorryNo">
-              <Input
-                id="lorryNo"
-                placeholder="GJ-01-BT-4471"
-                value={draft.lorryNo}
-                onChange={(e) => set("lorryNo", e.target.value.toUpperCase())}
-              />
-            </Field>
-            <Field label="Booking office" htmlFor="bookingOffice">
-              <Select
-                value={draft.bookingOffice}
-                onValueChange={(value) => value && set("bookingOffice", value)}
-              >
-                <SelectTrigger id="bookingOffice" className="w-full">
-                  <SelectValue placeholder="Select office" />
-                </SelectTrigger>
-                <SelectContent>
-                  {company.bookingOffices.map((office) => (
-                    <SelectItem key={office} value={office}>
-                      {office}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="From" htmlFor="from">
-              <Select
-                value={draft.from}
-                onValueChange={(value) => value && set("from", value)}
-              >
-                <SelectTrigger id="from" className="w-full">
-                  <SelectValue placeholder="Origin" />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATIONS.map((station) => (
-                    <SelectItem key={station} value={station}>
-                      {station}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="To" htmlFor="to" error={errors.to}>
-              <Select
-                value={draft.to}
-                onValueChange={(value) => value && set("to", value)}
-              >
-                <SelectTrigger id="to" className="w-full">
-                  <SelectValue placeholder="Destination" />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATIONS.map((station) => (
-                    <SelectItem key={station} value={station}>
-                      {station}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            <TextField
+              label="L.R. No."
+              name="lrNo"
+              registration={register("lrNo")}
+              error={errors.lrNo?.message}
+              inputClassName="tabular-nums"
+              hint={
+                creating && nextLrNo.isPending
+                  ? "Asking the register for the next number…"
+                  : undefined
+              }
+            />
+            <Controller
+              control={control}
+              name="lrDate"
+              render={({ field, fieldState }) => (
+                <Field
+                  label="Date"
+                  htmlFor="lrDate"
+                  error={fieldState.error?.message}
+                >
+                  <DateField
+                    id="lrDate"
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+            <TextField
+              label="Lorry No."
+              name="lorryNo"
+              registration={register("lorryNo", {
+                setValueAs: (v: string) => v.trim().toUpperCase(),
+              })}
+              error={errors.lorryNo?.message}
+              placeholder="GJ-01-BT-4471"
+            />
+            <SelectField
+              label="Booking office"
+              name="bookingOffice"
+              control={control}
+              options={company.bookingOffices}
+              error={errors.bookingOffice?.message}
+              placeholder="Select office"
+            />
+            <SelectField
+              label="From"
+              name="from"
+              control={control}
+              options={STATIONS}
+              error={errors.from?.message}
+              placeholder="Origin"
+            />
+            <SelectField
+              label="To"
+              name="to"
+              control={control}
+              options={STATIONS}
+              error={errors.to?.message}
+              placeholder="Destination"
+            />
           </Section>
 
           <Section title="Consignor">
-            <Field
+            <TextField
               label="M/s"
-              htmlFor="consignorName"
-              error={errors.consignorName}
-            >
-              <Input
-                id="consignorName"
-                value={draft.consignor.name}
-                onChange={(e) => setParty("consignor", "name", e.target.value)}
-              />
-            </Field>
-            <Field label="GST No." htmlFor="consignorGst">
-              <Input
-                id="consignorGst"
-                placeholder="24AACCS4471K1ZP"
-                value={draft.consignor.gstNo}
-                onChange={(e) =>
-                  setParty("consignor", "gstNo", e.target.value.toUpperCase())
-                }
-              />
-            </Field>
-            <Field
+              name="consignor.name"
+              registration={register("consignor.name")}
+              error={errors.consignor?.name?.message}
+            />
+            <TextField
+              label="GST No."
+              name="consignor.gstNo"
+              registration={register("consignor.gstNo", {
+                setValueAs: (v: string) => v.trim().toUpperCase(),
+              })}
+              error={errors.consignor?.gstNo?.message}
+              placeholder="24AACCS4471K1ZP"
+            />
+            <TextField
               label="Address"
-              htmlFor="consignorAddress"
+              name="consignor.address"
+              registration={register("consignor.address")}
+              error={errors.consignor?.address?.message}
               className="sm:col-span-2"
-            >
-              <Textarea
-                id="consignorAddress"
-                rows={2}
-                value={draft.consignor.address}
-                onChange={(e) =>
-                  setParty("consignor", "address", e.target.value)
-                }
-              />
-            </Field>
+              multiline
+            />
           </Section>
 
           <Section title="Consignee">
-            <Field
+            <TextField
               label="M/s"
-              htmlFor="consigneeName"
-              error={errors.consigneeName}
-            >
-              <Input
-                id="consigneeName"
-                value={draft.consignee.name}
-                onChange={(e) => setParty("consignee", "name", e.target.value)}
-              />
-            </Field>
-            <Field label="GST No." htmlFor="consigneeGst">
-              <Input
-                id="consigneeGst"
-                value={draft.consignee.gstNo}
-                onChange={(e) =>
-                  setParty("consignee", "gstNo", e.target.value.toUpperCase())
-                }
-              />
-            </Field>
-            <Field
+              name="consignee.name"
+              registration={register("consignee.name")}
+              error={errors.consignee?.name?.message}
+            />
+            <TextField
+              label="GST No."
+              name="consignee.gstNo"
+              registration={register("consignee.gstNo", {
+                setValueAs: (v: string) => v.trim().toUpperCase(),
+              })}
+              error={errors.consignee?.gstNo?.message}
+            />
+            <TextField
               label="Address"
-              htmlFor="consigneeAddress"
+              name="consignee.address"
+              registration={register("consignee.address")}
+              error={errors.consignee?.address?.message}
               className="sm:col-span-2"
-            >
-              <Textarea
-                id="consigneeAddress"
-                rows={2}
-                value={draft.consignee.address}
-                onChange={(e) =>
-                  setParty("consignee", "address", e.target.value)
-                }
-              />
-            </Field>
-            <Field
+              multiline
+            />
+            <TextField
               label="Delivery at"
-              htmlFor="deliveryAt"
+              name="deliveryAt"
+              registration={register("deliveryAt")}
+              error={errors.deliveryAt?.message}
               className="sm:col-span-2"
-            >
-              <Input
-                id="deliveryAt"
-                value={draft.deliveryAt}
-                onChange={(e) => set("deliveryAt", e.target.value)}
-              />
-            </Field>
+            />
           </Section>
 
           <Section
             title="Goods"
             note="Said to contain — declared by the consignor"
           >
-            <Field
+            <TextField
               label="Contents"
-              htmlFor="contents"
+              name="contents"
+              registration={register("contents")}
+              error={errors.contents?.message}
               className="sm:col-span-2"
-            >
-              <Input
-                id="contents"
-                value={draft.contents}
-                onChange={(e) => set("contents", e.target.value)}
-              />
-            </Field>
-            <Field label="Packages" htmlFor="packages">
-              <NumberInput
-                id="packages"
-                value={draft.packages}
-                onValueChange={(v) => set("packages", v)}
-              />
-            </Field>
-            <Field label="Declared value (₹)" htmlFor="declaredValue">
-              <NumberInput
-                id="declaredValue"
-                value={draft.declaredValue}
-                onValueChange={(v) => set("declaredValue", v)}
-              />
-            </Field>
-            <Field label="Actual weight (kg)" htmlFor="actualWeight">
-              <NumberInput
-                id="actualWeight"
-                value={draft.actualWeight}
-                onValueChange={(v) => set("actualWeight", v)}
-              />
-            </Field>
-            <Field
+            />
+            <NumberField
+              label="Packages"
+              name="packages"
+              control={control}
+              error={errors.packages?.message}
+            />
+            <NumberField
+              label="Declared value (₹)"
+              name="declaredValue"
+              control={control}
+              error={errors.declaredValue?.message}
+            />
+            <NumberField
+              label="Actual weight (kg)"
+              name="actualWeight"
+              control={control}
+              error={errors.actualWeight?.message}
+            />
+            <NumberField
               label="Charged weight (kg)"
-              htmlFor="chargedWeight"
+              name="chargedWeight"
+              control={control}
+              error={errors.chargedWeight?.message}
               hint="Whichever is higher — actual or volumetric"
-            >
-              <NumberInput
-                id="chargedWeight"
-                value={draft.chargedWeight}
-                onValueChange={(v) => set("chargedWeight", v)}
-              />
-            </Field>
-            <Field label="Rate (₹ per quintal)" htmlFor="rate">
-              <NumberInput
-                id="rate"
-                value={draft.rate}
-                onValueChange={(v) => set("rate", v)}
-              />
-            </Field>
-            <Field label="Risk" htmlFor="risk">
-              <Select
-                value={draft.risk}
-                onValueChange={(value) => value && set("risk", value)}
-              >
-                <SelectTrigger id="risk" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RISK_TYPES.map((risk) => (
-                    <SelectItem key={risk} value={risk}>
-                      {risk}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Invoice No." htmlFor="invoiceNo">
-              <Input
-                id="invoiceNo"
-                value={draft.invoiceNo}
-                onChange={(e) => set("invoiceNo", e.target.value)}
-              />
-            </Field>
-            <Field label="E-Way Bill No." htmlFor="eWayBillNo">
-              <Input
-                id="eWayBillNo"
-                className="tabular-nums"
-                value={draft.eWayBillNo}
-                onChange={(e) => set("eWayBillNo", e.target.value)}
-              />
-            </Field>
+            />
+            <NumberField
+              label="Rate (₹ per quintal)"
+              name="rate"
+              control={control}
+              error={errors.rate?.message}
+            />
+            <SelectField
+              label="Risk"
+              name="risk"
+              control={control}
+              options={RISK_TYPES}
+              error={errors.risk?.message}
+            />
+            <TextField
+              label="Invoice No."
+              name="invoiceNo"
+              registration={register("invoiceNo")}
+              error={errors.invoiceNo?.message}
+            />
+            <TextField
+              label="E-Way Bill No."
+              name="eWayBillNo"
+              registration={register("eWayBillNo")}
+              error={errors.eWayBillNo?.message}
+              inputClassName="tabular-nums"
+            />
           </Section>
 
           <Section title="Charges">
-            <Field label="Freight (₹)" htmlFor="freight">
-              <NumberInput
-                id="freight"
-                value={draft.charges.freight}
-                onValueChange={(v) => setCharge("freight", v)}
-              />
-            </Field>
-            <Field label="A.O.C. (₹)" htmlFor="aoc" hint="Any other charges">
-              <NumberInput
-                id="aoc"
-                value={draft.charges.aoc}
-                onValueChange={(v) => setCharge("aoc", v)}
-              />
-            </Field>
-            <Field label="Hamali (₹)" htmlFor="hamali">
-              <NumberInput
-                id="hamali"
-                value={draft.charges.hamali}
-                onValueChange={(v) => setCharge("hamali", v)}
-              />
-            </Field>
-            <Field label="St. Charges (₹)" htmlFor="stCharges">
-              <NumberInput
-                id="stCharges"
-                value={draft.charges.stCharges}
-                onValueChange={(v) => setCharge("stCharges", v)}
-              />
-            </Field>
-            <Field label="Other charges (₹)" htmlFor="otherCharges">
-              <NumberInput
-                id="otherCharges"
-                value={draft.charges.otherCharges}
-                onValueChange={(v) => setCharge("otherCharges", v)}
-              />
-            </Field>
-            <Field label="Advance (₹)" htmlFor="advance" error={errors.advance}>
-              <NumberInput
-                id="advance"
-                value={draft.charges.advance}
-                onValueChange={(v) => setCharge("advance", v)}
-              />
-            </Field>
+            <NumberField
+              label="Freight (₹)"
+              name="charges.freight"
+              control={control}
+              error={errors.charges?.freight?.message}
+            />
+            <NumberField
+              label="A.O.C. (₹)"
+              name="charges.aoc"
+              control={control}
+              error={errors.charges?.aoc?.message}
+              hint="Any other charges"
+            />
+            <NumberField
+              label="Hamali (₹)"
+              name="charges.hamali"
+              control={control}
+              error={errors.charges?.hamali?.message}
+            />
+            <NumberField
+              label="St. Charges (₹)"
+              name="charges.stCharges"
+              control={control}
+              error={errors.charges?.stCharges?.message}
+            />
+            <NumberField
+              label="Other charges (₹)"
+              name="charges.otherCharges"
+              control={control}
+              error={errors.charges?.otherCharges?.message}
+            />
+            <NumberField
+              label="Advance (₹)"
+              name="charges.advance"
+              control={control}
+              error={errors.charges?.advance?.message}
+            />
 
             <div className="rounded-lg bg-muted/60 p-3 sm:col-span-2">
               <dl className="grid gap-1.5 text-sm">
@@ -513,9 +645,7 @@ export function BiltyFormDialog({
                 </div>
                 <div className="flex items-center justify-between">
                   <dt className="text-muted-foreground">Less advance</dt>
-                  <dd className="tabular-nums">
-                    {formatINR(draft.charges.advance)}
-                  </dd>
+                  <dd className="tabular-nums">{formatINR(charges.advance)}</dd>
                 </div>
                 <div className="flex items-center justify-between border-t pt-1.5">
                   <dt className="font-medium">Balance to collect</dt>
@@ -528,98 +658,71 @@ export function BiltyFormDialog({
           </Section>
 
           <Section title="Terms & status">
-            <Field label="Freight terms" htmlFor="paymentType">
-              <Select
-                value={draft.paymentType}
-                onValueChange={(value) => value && set("paymentType", value)}
-              >
-                <SelectTrigger id="paymentType" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Status" htmlFor="status">
-              <Select
-                value={draft.status}
-                onValueChange={(value) => value && set("status", value)}
-              >
-                <SelectTrigger id="status" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {BILTY_STATUSES.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Remarks" htmlFor="remarks" className="sm:col-span-2">
-              <Textarea
-                id="remarks"
-                rows={2}
-                value={draft.remarks}
-                onChange={(e) => set("remarks", e.target.value)}
-              />
-            </Field>
+            <SelectField
+              label="Freight terms"
+              name="paymentType"
+              control={control}
+              options={PAYMENT_TYPES}
+              error={errors.paymentType?.message}
+            />
+            <SelectField
+              label="Status"
+              name="status"
+              control={control}
+              options={BILTY_STATUSES}
+              error={errors.status?.message}
+            />
+            <TextField
+              label="Remarks"
+              name="remarks"
+              registration={register("remarks")}
+              error={errors.remarks?.message}
+              className="sm:col-span-2"
+              multiline
+            />
           </Section>
 
           <Section
             title="Insurance"
             note="Leave blank if the party has not insured the consignment"
           >
-            <Field label="Company" htmlFor="insuranceCompany">
-              <Input
-                id="insuranceCompany"
-                value={draft.insurance.company}
-                onChange={(e) =>
-                  set("insurance", {
-                    ...draft.insurance,
-                    company: e.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field label="Policy No." htmlFor="insurancePolicy">
-              <Input
-                id="insurancePolicy"
-                value={draft.insurance.policyNo}
-                onChange={(e) =>
-                  set("insurance", {
-                    ...draft.insurance,
-                    policyNo: e.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field label="Policy date" htmlFor="insuranceDate">
-              <DateField
-                id="insuranceDate"
-                value={draft.insurance.date}
-                onValueChange={(v) =>
-                  set("insurance", { ...draft.insurance, date: v })
-                }
-              />
-            </Field>
-            <Field label="Insured amount (₹)" htmlFor="insuranceAmount">
-              <NumberInput
-                id="insuranceAmount"
-                value={draft.insurance.amount}
-                onValueChange={(v) =>
-                  set("insurance", { ...draft.insurance, amount: v })
-                }
-              />
-            </Field>
+            <TextField
+              label="Company"
+              name="insurance.company"
+              registration={register("insurance.company")}
+              error={errors.insurance?.company?.message}
+            />
+            <TextField
+              label="Policy No."
+              name="insurance.policyNo"
+              registration={register("insurance.policyNo")}
+              error={errors.insurance?.policyNo?.message}
+            />
+            <Controller
+              control={control}
+              name="insurance.date"
+              render={({ field, fieldState }) => (
+                <Field
+                  label="Policy date"
+                  htmlFor="insurance.date"
+                  error={fieldState.error?.message}
+                >
+                  <DateField
+                    id="insurance.date"
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+            <NumberField
+              label="Insured amount (₹)"
+              name="insurance.amount"
+              control={control}
+              error={errors.insurance?.amount?.message}
+            />
           </Section>
-        </div>
+        </form>
 
         <DialogFooter className="sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
@@ -629,11 +732,22 @@ export function BiltyFormDialog({
             </span>
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
-            <Button onClick={handleSave}>
-              {mode === "create" ? "Save bilty" : "Save changes"}
+            {/* Outside the scrolling area, so it is submitted by `form` rather
+                than by being inside the element. */}
+            <Button type="submit" form="bilty-form" disabled={isSubmitting}>
+              {isSubmitting
+                ? "Saving…"
+                : creating
+                  ? "Save bilty"
+                  : "Save changes"}
             </Button>
           </div>
         </DialogFooter>

@@ -49,6 +49,7 @@ export function ListField({
   values,
   onValuesChange,
   error,
+  itemErrors,
   hint,
   placeholder,
   addLabel,
@@ -61,7 +62,10 @@ export function ListField({
   id: string
   values: string[]
   onValuesChange: (values: string[]) => void
+  /** About the list as a whole — that it is empty, or too long. */
   error?: string
+  /** About one row, by position — a phone number that is not one. */
+  itemErrors?: (string | undefined)[]
   hint?: string
   placeholder?: string
   addLabel: string
@@ -81,28 +85,34 @@ export function ListField({
           // Rows have no identity of their own — a phone number is not a
           // record — so the index is the only key there is. Editing in place
           // keeps it stable; adding and removing rebuilds the short list.
-          <div key={index} className="flex gap-2">
-            <Input
-              id={`${id}-${index}`}
-              className={inputClassName}
-              placeholder={placeholder}
-              aria-label={`${itemLabel} ${index + 1}`}
-              value={value}
-              onChange={(event) => replace(index, event.target.value)}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              // The last row is never removable: a firm with no phone number
-              // and no booking office prints a letterhead with a hole in it.
-              disabled={values.length === 1}
-              aria-label={`Remove ${itemLabel.toLowerCase()} ${index + 1}`}
-              onClick={() =>
-                onValuesChange(values.filter((_, i) => i !== index))
-              }
-            >
-              <XIcon />
-            </Button>
+          <div key={index} className="grid gap-1.5">
+            <div className="flex gap-2">
+              <Input
+                id={`${id}-${index}`}
+                className={inputClassName}
+                placeholder={placeholder}
+                aria-invalid={itemErrors?.[index] ? true : undefined}
+                aria-label={`${itemLabel} ${index + 1}`}
+                value={value}
+                onChange={(event) => replace(index, event.target.value)}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                // The last row is never removable: a firm with no phone number
+                // and no booking office prints a letterhead with a hole in it.
+                disabled={values.length === 1}
+                aria-label={`Remove ${itemLabel.toLowerCase()} ${index + 1}`}
+                onClick={() =>
+                  onValuesChange(values.filter((_, i) => i !== index))
+                }
+              >
+                <XIcon />
+              </Button>
+            </div>
+            {itemErrors?.[index] ? (
+              <p className="text-xs text-destructive">{itemErrors[index]}</p>
+            ) : null}
           </div>
         ))}
       </div>
