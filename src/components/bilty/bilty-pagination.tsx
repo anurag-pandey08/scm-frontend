@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
@@ -20,20 +21,32 @@ export function BiltyPagination({
   page,
   totalPages,
   total,
+  onPendingChange,
 }: {
   query: RegisterQuery
   page: number
   totalPages: number
   /** Rows matching the filters, across every page. */
   total: number
+  /** Told while the next page is being fetched, so the register can say so. */
+  onPendingChange?: (pending: boolean) => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
+  const [pending, startTransition] = React.useTransition()
+
+  React.useEffect(() => {
+    onPendingChange?.(pending)
+    // This row disappears entirely once a filter narrows the book to a single
+    // page, which can happen mid-navigation — without this the register would
+    // be left waiting on a page turn that no longer exists.
+    return () => onPendingChange?.(false)
+  }, [pending, onPendingChange])
 
   function go(to: number) {
     const params = queryToSearchParams({ ...query, page: to })
     const search = params.size > 0 ? `?${params.toString()}` : ""
-    router.replace(`${pathname}${search}`)
+    startTransition(() => router.replace(`${pathname}${search}`))
   }
 
   const first = (page - 1) * query.pageSize + 1

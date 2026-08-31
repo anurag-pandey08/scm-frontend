@@ -47,7 +47,20 @@ const TYPING_PAUSE_MS = 300
  * moving to another, and pushing would make the back button walk the clerk
  * backwards through every keystroke.
  */
-export function BiltyFilters({ query }: { query: RegisterQuery }) {
+export function BiltyFilters({
+  query,
+  onPendingChange,
+}: {
+  query: RegisterQuery
+  /**
+   * Told whenever a filter is on its way to the server, so the register can
+   * put its loader up. The wait starts here, not at the query: the URL is
+   * changed first and the new page is fetched on the server, so by the time
+   * the register's own query key moves, most of the round trip is already
+   * spent.
+   */
+  onPendingChange?: (pending: boolean) => void
+}) {
   const router = useRouter()
   const pathname = usePathname()
 
@@ -87,6 +100,13 @@ export function BiltyFilters({ query }: { query: RegisterQuery }) {
     const timer = setTimeout(() => apply({ q: typed }), TYPING_PAUSE_MS)
     return () => clearTimeout(timer)
   }, [typed, query.q, apply])
+
+  React.useEffect(() => {
+    onPendingChange?.(pending)
+    // Leaves the register unblocked rather than stuck behind a loader for a
+    // navigation nobody is waiting on any more.
+    return () => onPendingChange?.(false)
+  }, [pending, onPendingChange])
 
   const filtersApplied =
     query.q !== "" || query.status !== "all" || query.payment !== "all"
