@@ -5,13 +5,19 @@ import {
   EllipsisIcon,
   PencilIcon,
   PlusIcon,
-  SearchIcon,
   Trash2Icon,
   UsersIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { TripFilters } from "@/components/trip-register/trip-filters"
 import { TripFormDialog } from "@/components/trip-register/trip-form-dialog"
+import { TripPagination } from "@/components/trip-register/trip-pagination"
+import {
+  EMPTY_PAGE,
+  useTripMutations,
+  useTripPage,
+} from "@/components/trip-register/use-trips"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,15 +37,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -48,53 +45,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { TODAY } from "@/lib/data"
+import { TruckLoadingOverlay } from "@/components/ui/truck-loader"
+import { ApiError } from "@/lib/api/client"
+import type { RegisterQuery } from "@/lib/api/trips"
 import { formatDateNumeric, formatINR, formatNumber } from "@/lib/format"
+import type { TripInput } from "@/lib/schemas/trip"
 import {
-  REGISTER_ORIGIN,
-  getSeedTrips,
-  nextTripId,
-} from "@/lib/trip-register-data"
-import {
-  emptyTrip,
   tripDueFromParty,
   tripFreight,
-  tripReceived,
   type Trip,
 } from "@/lib/trip-register-types"
 import { cn } from "@/lib/utils"
-
-type Filter = "all" | "party-owes" | "lorry-owed"
-
-/**
- * The filter options, each with the label the closed trigger shows for it.
- * `Select` is handed these as `items` so the trigger can name the choice —
- * without them it falls back to printing the raw value, and "party-owes" is not
- * what the row reads as.
- */
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: "all", label: "All rows" },
-  { value: "party-owes", label: "Party still owes" },
-  { value: "lorry-owed", label: "Lorry still to be paid" },
-]
-
-function matches(trip: Trip, query: string) {
-  if (!query) return true
-  const needle = query.trim().toLowerCase()
-  return [
-    trip.truckNo,
-    trip.partyName,
-    trip.brokerName,
-    trip.from,
-    trip.to,
-    trip.goods,
-    trip.lrNo,
-    trip.remarks,
-  ].some((field) => field.toLowerCase().includes(needle))
-}
-
-const byNewest = (a: Trip, b: Trip) =>
-  a.date === b.date ? 0 : a.date < b.date ? 1 : -1
 
 /** Money cells read as blank rather than ₹0 — the ledger leaves them empty. */
 function money(amount: number): string {
@@ -314,141 +275,119 @@ function TripCard({
   )
 }
 
-export function TripRegister() {
-  const [trips, setTrips] = React.useState<Trip[]>(() => getSeedTrips())
-  const [query, setQuery] = React.useState("")
-  const [filter, setFilter] = React.useState<Filter>("all")
+/**
+ * The office daybook.
+ *
+ * Filtering, sorting, paging and the five figures above the spread are all
+ * Postgres's — the page arrives already narrowed, already counted and already
+ * added up, and this renders it. That is a change from what it used to do: it
+ * once held the whole book in memory and filtered it in the browser, which is
+ * fine for fifteen trips and not for a year of them.
+ *
+ * The totals in particular are worth naming: every one of them is an
+ * expression over columns rather than a column — rate × weight, a bill less
+ * two receipts, a balance counted only where nobody has been paid — and all
+ * five are now worked out in SQL. See `trip.repository.ts` for why.
+ */
+export function TripRegister({ query }: { query: RegisterQuery }) {
+  const { data, isFetching, isError, error } = useTripPage(query)
+  const { create, update, remove } = useTripMutations()
+
+  const { trips, meta } = data ?? EMPTY_PAGE
 
   const [form, setForm] = React.useState<{
     open: boolean
-    mode: "create" | "edit"
-    trip: Trip
-  }>(() => ({
-    open: false,
-    mode: "create",
-    trip: emptyTrip(TODAY, REGISTER_ORIGIN),
-  }))
+    /** The row being amended, or null when a new one is being entered. */
+    editing: Trip | null
+  }>({ open: false, editing: null })
 
   const [pendingDelete, setPendingDelete] = React.useState<Trip | null>(null)
 
-  /**
-   * Where the Truck No. column parks. A hard-coded offset only lines up while
-   * the Date column happens to be exactly that wide — the table lays itself out
-   * from its contents, so the real width drifts with the viewport and leaves
-   * either a seam the spread shows through or an overlap that eats the date.
-   * Measuring the header cell keeps the two flush at any width.
-   */
-  const dateHead = React.useRef<HTMLTableCellElement>(null)
-  const [dateWidth, setDateWidth] = React.useState(96)
+  // Filtering and paging are navigations before they are queries — the URL is
+  // rewritten and the page re-fetched on the server — so the ledger has to
+  // hear about them from the controls rather than from its own query.
+  const [filtersPending, setFiltersPending] = React.useState(false)
+  const [pagePending, setPagePending] = React.useState(false)
 
-  React.useEffect(() => {
-    const cell = dateHead.current
-    if (!cell) return
-    const observer = new ResizeObserver(() => {
-      // Floor it: a sub-pixel overlap hides under the next column, a sub-pixel
-      // shortfall is a visible hairline of scrolled text.
-      setDateWidth(Math.floor(cell.getBoundingClientRect().width))
-    })
-    observer.observe(cell)
-    return () => observer.disconnect()
+  const saving = create.isPending || update.isPending
+  const deleting = remove.isPending
+
+  // One loader for everything that leaves the rows on screen out of date: a
+  // search, a filter, a page turn, a save, a deletion, and the refetch each
+  // write kicks off afterwards.
+  const busy = isFetching || filtersPending || pagePending || saving || deleting
+  const busyLabel = saving
+    ? "Saving trip…"
+    : deleting
+      ? "Striking off…"
+      : "Fetching trips…"
+
+  /**
+   * The first column's measured width, so the second can be pinned flush
+   * against it. Measured rather than assumed because the date column's content
+   * sets it, and a hard-coded offset would leave a seam or an overlap.
+   */
+  const [dateWidth, setDateWidth] = React.useState(96)
+  const dateHead = React.useCallback((node: HTMLTableCellElement | null) => {
+    if (node) setDateWidth(node.getBoundingClientRect().width)
   }, [])
 
   /** `left` for the two pinned columns; every other column scrolls. */
   const stickyLeft = (index: number) =>
     index === 0 ? { left: 0 } : index === 1 ? { left: dateWidth } : undefined
 
-  const visible = React.useMemo(
-    () =>
-      trips
-        .filter((trip) => {
-          if (!matches(trip, query)) return false
-          if (filter === "party-owes") return tripDueFromParty(trip) > 0
-          if (filter === "lorry-owed") return trip.balance > 0 && !trip.paidDate
-          return true
-        })
-        .sort(byNewest),
-    [trips, query, filter]
-  )
+  const filtersApplied = query.q !== "" || query.filter !== "all"
 
-  const totals = React.useMemo(
-    () =>
-      visible.reduce(
-        (acc, trip) => {
-          acc.freight += tripFreight(trip)
-          acc.commission += trip.commission
-          acc.received += tripReceived(trip)
-          acc.dueFromParty += Math.max(0, tripDueFromParty(trip))
-          if (!trip.paidDate) acc.dueToLorry += trip.balance
-          return acc
-        },
-        {
-          freight: 0,
-          commission: 0,
-          received: 0,
-          dueFromParty: 0,
-          dueToLorry: 0,
-        }
-      ),
-    [visible]
-  )
+  async function handleSave(input: TripInput): Promise<void> {
+    const editing = form.editing
 
-  function openCreate() {
-    setForm({
-      open: true,
-      mode: "create",
-      trip: emptyTrip(TODAY, REGISTER_ORIGIN),
-    })
+    if (editing) {
+      await update.mutateAsync({ id: editing.id, input })
+      toast.success(`Trip ${input.truckNo} updated`)
+    } else {
+      await create.mutateAsync(input)
+      toast.success(`Trip ${input.truckNo} entered`)
+    }
+
+    setForm({ open: false, editing: null })
   }
 
-  function openEdit(trip: Trip) {
-    // A fresh copy each time, so reopening the same row always reloads it
-    // rather than resuming a half-finished draft.
-    setForm({ open: true, mode: "edit", trip: structuredClone(trip) })
-  }
-
-  function handleSave(saved: Trip) {
-    setTrips((current) => {
-      const exists = current.some((t) => t.id === saved.id)
-      return exists
-        ? current.map((t) => (t.id === saved.id ? saved : t))
-        : [{ ...saved, id: nextTripId() }, ...current]
-    })
-    setForm((f) => ({ ...f, open: false }))
-    toast.success(
-      form.mode === "create"
-        ? `Trip ${saved.truckNo} entered`
-        : `Trip ${saved.truckNo} updated`
-    )
-  }
-
-  function handleDelete() {
+  async function handleDelete() {
     const removed = pendingDelete
     if (!removed) return
-    setTrips((current) => current.filter((t) => t.id !== removed.id))
-    setPendingDelete(null)
-    toast.success(`Trip ${removed.truckNo} struck off`, {
-      action: {
-        label: "Undo",
-        onClick: () =>
-          setTrips((current) =>
-            current.some((t) => t.id === removed.id)
-              ? current
-              : [removed, ...current]
-          ),
-      },
-    })
-  }
 
-  const filtersApplied = query !== "" || filter !== "all"
+    setPendingDelete(null)
+
+    try {
+      await remove.mutateAsync(removed.id)
+      // No undo. It used to offer one, because putting a row back into a list
+      // in memory is free; putting a struck-off trip back into a book both
+      // offices work means entering it again, and the other desk may have
+      // acted on its absence in the meantime.
+      toast.success(`Trip ${removed.truckNo} struck off`)
+    } catch (cause) {
+      toast.error(
+        cause instanceof ApiError
+          ? cause.message
+          : `Could not strike off the ${removed.truckNo} trip`
+      )
+    }
+  }
 
   /** Same words whether the register is showing as cards or as the spread. */
   const emptyState = (
     <>
-      <p className="text-sm font-medium">No trips found</p>
+      <p className="text-sm font-medium">
+        {isError ? "Could not read the daybook" : "No trips found"}
+      </p>
       <p className="mt-1 text-sm text-muted-foreground">
-        {filtersApplied
-          ? "Nothing matches these filters."
-          : "The daybook is empty — enter the first trip."}
+        {isError
+          ? error instanceof ApiError
+            ? error.message
+            : "Something went wrong reading the register."
+          : filtersApplied
+            ? "Nothing matches these filters."
+            : "The daybook is empty — enter the first trip."}
       </p>
     </>
   )
@@ -490,7 +429,7 @@ export function TripRegister() {
             carried through to the money settled either side of it
           </p>
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={() => setForm({ open: true, editing: null })}>
           <PlusIcon data-icon="inline-start" />
           New trip
         </Button>
@@ -503,75 +442,26 @@ export function TripRegister() {
         <span>
           One book for both firms. Unlike the L.R., bill and slip books, these
           rows are shared — switching firms in the sidebar shows the same
-          register.
+          register, and a row struck off here is gone for both offices.
         </span>
       </p>
 
-      {/* One filter row above everything it scopes */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="grid min-w-56 flex-1 gap-1.5">
-          <Label htmlFor="search" className="sr-only">
-            Search the register
-          </Label>
-          <div className="relative">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="search"
-              className="pl-8"
-              placeholder="Truck, party, broker, goods, L.R. no., destination…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label htmlFor="filter-money" className="sr-only">
-            Outstanding
-          </Label>
-          <Select
-            items={FILTERS}
-            value={filter}
-            onValueChange={(v) => v && setFilter(v)}
-          >
-            <SelectTrigger id="filter-money" className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FILTERS.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Always in the row, and flat until there is something to clear. A
-            button that comes and goes shoves the controls beside it sideways
-            every time a filter is set or dropped. */}
-        <Button
-          variant="ghost"
-          disabled={!filtersApplied}
-          onClick={() => {
-            setQuery("")
-            setFilter("all")
-          }}
-        >
-          Clear
-        </Button>
-      </div>
+      <TripFilters query={query} onPendingChange={setFiltersPending} />
 
       {/* Totals sit above the spread — a footer row 22 columns wide would be
-          off the side of the screen the moment anyone scrolled. */}
+          off the side of the screen the moment anyone scrolled. They are of
+          everything the filters match, not of the rows on this page. */}
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {(
           [
-            ["Rows", `${visible.length} of ${trips.length}`],
-            ["Freight", formatINR(totals.freight)],
-            ["Commission", formatINR(totals.commission)],
-            ["Due from parties", formatINR(totals.dueFromParty)],
-            ["Due to lorries", formatINR(totals.dueToLorry)],
+            [
+              "Rows",
+              `${formatNumber(meta.total)} of ${formatNumber(meta.bookTotal)}`,
+            ],
+            ["Freight", formatINR(meta.totals.freight)],
+            ["Commission", formatINR(meta.totals.commission)],
+            ["Due from parties", formatINR(meta.totals.dueFromParty)],
+            ["Due to lorries", formatINR(meta.totals.dueToLorry)],
           ] as const
         ).map(([label, value]) => (
           <Card key={label} className="gap-1 px-3 py-2.5">
@@ -581,111 +471,135 @@ export function TripRegister() {
         ))}
       </dl>
 
-      {/* Below md: one card per trip. See `TripCard` for why the spread does
-          not come along. */}
-      <div className="flex flex-col gap-3 md:hidden">
-        {visible.length === 0 ? (
-          <Card className="px-4 py-8 text-center">{emptyState}</Card>
-        ) : (
-          visible.map((trip) => (
-            <TripCard
-              key={trip.id}
-              trip={trip}
-              onEdit={() => openEdit(trip)}
-              onDelete={() => setPendingDelete(trip)}
-            />
-          ))
-        )}
-      </div>
+      {/* The loader covers the ledger in both its shapes — the cards below md
+          and the spread above it — so the wrapper wraps them both. It is a
+          sibling of each Card rather than a child, because the lorry holds
+          itself in view as the clerk scrolls and a Card's `overflow-hidden`
+          would stop it. */}
+      <div className="relative">
+        {/* Below md: one card per trip. See `TripCard` for why the spread does
+            not come along. */}
+        <div className="flex flex-col gap-3 md:hidden">
+          {trips.length === 0 ? (
+            <Card className="px-4 py-8 text-center">{emptyState}</Card>
+          ) : (
+            trips.map((trip) => (
+              <TripCard
+                key={trip.id}
+                trip={trip}
+                onEdit={() => setForm({ open: true, editing: trip })}
+                onDelete={() => setPendingDelete(trip)}
+              />
+            ))
+          )}
+        </div>
 
-      <Card className="hidden py-0 md:block">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              {GROUPS.map(([label, span]) => (
-                <TableHead
-                  key={label}
-                  colSpan={span}
-                  className="border-r text-center text-xs tracking-wide text-muted-foreground uppercase last:border-r-0"
-                >
-                  {label}
-                </TableHead>
-              ))}
-              <TableHead className="w-10" />
-            </TableRow>
-            <TableRow className="hover:bg-transparent">
-              {COLUMNS.map((column, index) => (
-                <TableHead
-                  key={column}
-                  ref={index === 0 ? dateHead : undefined}
-                  style={stickyLeft(index)}
-                  className={cn(
-                    NUMERIC.has(column) && "text-right",
-                    index === 0 && cn(stickyCell, "z-20 w-24"),
-                    index === 1 && cn(stickyCell, stickyEdge, "z-20")
-                  )}
-                >
-                  {column}
-                </TableHead>
-              ))}
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {visible.length === 0 ? (
+        <Card
+          className="hidden py-0 md:block"
+          data-pending={busy ? "" : undefined}
+        >
+          <Table aria-busy={busy}>
+            <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableCell
-                  colSpan={COLUMNS.length + 1}
-                  className="h-28 text-center"
-                >
-                  {emptyState}
-                </TableCell>
+                {GROUPS.map(([label, span]) => (
+                  <TableHead
+                    key={label}
+                    colSpan={span}
+                    className="border-r text-center text-xs tracking-wide text-muted-foreground uppercase last:border-r-0"
+                  >
+                    {label}
+                  </TableHead>
+                ))}
+                <TableHead className="w-10" />
               </TableRow>
-            ) : (
-              visible.map((trip) => (
-                <TableRow key={trip.id} className="group/row">
-                  {cells(trip).map((value, index) => (
-                    <TableCell
-                      key={COLUMNS[index]}
-                      style={stickyLeft(index)}
-                      className={cn(
-                        NUMERIC.has(COLUMNS[index]) &&
-                          "text-right tabular-nums",
-                        COLUMNS[index] === "Remarks" &&
-                          "max-w-56 truncate text-xs whitespace-normal text-muted-foreground",
-                        index === 0 && cn(stickyCell, "z-10 w-24 tabular-nums"),
-                        index === 1 &&
-                          cn(stickyCell, stickyEdge, "z-10 font-medium")
-                      )}
-                      title={
-                        COLUMNS[index] === "Remarks" && trip.remarks
-                          ? trip.remarks
-                          : undefined
-                      }
-                    >
-                      {value}
-                    </TableCell>
-                  ))}
-                  <TableCell>
-                    <RowActions
-                      trip={trip}
-                      onEdit={() => openEdit(trip)}
-                      onDelete={() => setPendingDelete(trip)}
-                    />
+              <TableRow className="hover:bg-transparent">
+                {COLUMNS.map((column, index) => (
+                  <TableHead
+                    key={column}
+                    ref={index === 0 ? dateHead : undefined}
+                    style={stickyLeft(index)}
+                    className={cn(
+                      NUMERIC.has(column) && "text-right",
+                      index === 0 && cn(stickyCell, "z-20 w-24"),
+                      index === 1 && cn(stickyCell, stickyEdge, "z-20")
+                    )}
+                  >
+                    {column}
+                  </TableHead>
+                ))}
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+
+            <TableBody>
+              {trips.length === 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell
+                    colSpan={COLUMNS.length + 1}
+                    className="h-28 text-center"
+                  >
+                    {emptyState}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+              ) : (
+                trips.map((trip) => (
+                  <TableRow key={trip.id} className="group/row">
+                    {cells(trip).map((value, index) => (
+                      <TableCell
+                        key={COLUMNS[index]}
+                        style={stickyLeft(index)}
+                        className={cn(
+                          NUMERIC.has(COLUMNS[index]) &&
+                            "text-right tabular-nums",
+                          COLUMNS[index] === "Remarks" &&
+                            "max-w-56 truncate text-xs whitespace-normal text-muted-foreground",
+                          index === 0 &&
+                            cn(stickyCell, "z-10 w-24 tabular-nums"),
+                          index === 1 &&
+                            cn(stickyCell, stickyEdge, "z-10 font-medium")
+                        )}
+                        title={
+                          COLUMNS[index] === "Remarks" && trip.remarks
+                            ? trip.remarks
+                            : undefined
+                        }
+                      >
+                        {value}
+                      </TableCell>
+                    ))}
+                    <TableCell>
+                      <RowActions
+                        trip={trip}
+                        onEdit={() => setForm({ open: true, editing: trip })}
+                        onDelete={() => setPendingDelete(trip)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Card>
+
+        <TruckLoadingOverlay show={busy} label={busyLabel} />
+      </div>
+
+      <TripPagination
+        query={query}
+        page={meta.page}
+        totalPages={meta.totalPages}
+        total={meta.total}
+        onPendingChange={setPagePending}
+      />
 
       <TripFormDialog
         open={form.open}
-        onOpenChange={(open) => setForm((f) => ({ ...f, open }))}
-        mode={form.mode}
-        initial={form.trip}
+        onOpenChange={(open) =>
+          setForm((f) =>
+            open ? { ...f, open } : { open: false, editing: null }
+          )
+        }
+        editing={form.editing}
         onSave={handleSave}
       />
 
@@ -702,12 +616,17 @@ export function TripRegister() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               This removes the row for {pendingDelete?.partyName} from the
-              daybook. Both firms work this one book, so it goes for everyone.
+              daybook, and it cannot be undone. Both firms work this one book,
+              so it goes for everyone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => void handleDelete()}
+            >
               Strike it off
             </AlertDialogAction>
           </AlertDialogFooter>
