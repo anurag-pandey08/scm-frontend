@@ -2,6 +2,10 @@
  * Domain model for a freight bill — what the office raises on a party once the
  * consignments have run. Field names follow the printed bill book: one bill
  * carries one party, one route and a column of challans.
+ *
+ * This is the shape the screens and the printed bill are written against.
+ * `lib/schemas/invoice.ts` is what parses it off the API and what the form
+ * validates, and it is checked against these types at compile time.
  */
 
 import type { Party } from "./types"
@@ -22,6 +26,7 @@ export type InvoiceStatus = (typeof INVOICE_STATUSES)[number]
 export const LINE_KINDS = ["Freight", "Charge"] as const
 export type LineKind = (typeof LINE_KINDS)[number]
 
+/** One row of the charge column, as it comes back from the book. */
 export interface InvoiceLine {
   id: string
   kind: LineKind
@@ -38,6 +43,9 @@ export interface InvoiceLine {
   /** The Rs. column. */
   amount: number
 }
+
+/** A line as the form holds it, before the book has given it an id. */
+export type InvoiceLineDraft = Omit<InvoiceLine, "id">
 
 export interface Invoice {
   id: string
@@ -67,14 +75,14 @@ export function freightAmount(rate: number, weight: number): number {
   return Math.round(rate * weight)
 }
 
-/** The Total box — every line in the amount column added up. */
-export function invoiceTotal(invoice: Invoice): number {
+/**
+ * The Total box — every line in the amount column added up.
+ *
+ * Takes anything with an amount column, so the form can total a draft that has
+ * no ids on its lines yet and the register can total a bill that has.
+ */
+export function invoiceTotal(invoice: { lines: { amount: number }[] }): number {
   return invoice.lines.reduce((sum, line) => sum + line.amount, 0)
-}
-
-/** Money the party still owes. A draft has not been sent, so it is not yet due. */
-export function outstanding(invoice: Invoice): number {
-  return invoice.status === "Raised" ? invoiceTotal(invoice) : 0
 }
 
 /** The challans a bill covers, in the order they are printed. */
@@ -84,14 +92,9 @@ export function billedChallans(invoice: Invoice): string[] {
     .map((line) => line.challanNo)
 }
 
-// Line ids only have to be unique within one bill; a counter beats a random id
-// here because it keeps React keys stable between the server and client render.
-let lineSeq = 0
-
-export function emptyLine(kind: LineKind = "Freight"): InvoiceLine {
-  lineSeq += 1
+/** A blank line, of either kind. */
+export function emptyLine(kind: LineKind = "Freight"): InvoiceLineDraft {
   return {
-    id: `line-${lineSeq}`,
     kind,
     challanNo: "",
     date: "",
@@ -99,26 +102,5 @@ export function emptyLine(kind: LineKind = "Freight"): InvoiceLine {
     rate: 0,
     weight: 0,
     amount: 0,
-  }
-}
-
-/** A blank bill. `from` is the booking firm's own station, so it is passed in. */
-export function emptyInvoice(
-  billNo: string,
-  billDate: string,
-  from: string
-): Invoice {
-  return {
-    id: "",
-    billNo,
-    billDate,
-    party: { name: "", address: "", gstNo: "" },
-    from,
-    to: "",
-    partyInvoiceNo: "",
-    lines: [{ ...emptyLine("Freight"), date: billDate }],
-    status: "Draft",
-    paidOn: "",
-    remarks: "",
   }
 }
