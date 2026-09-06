@@ -51,6 +51,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { TruckLoadingOverlay } from "@/components/ui/truck-loader"
 import { ApiError } from "@/lib/api/client"
 import type { RegisterQuery } from "@/lib/api/bilties"
 import { formatDate, formatINR, formatNumber } from "@/lib/format"
@@ -74,13 +75,29 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
   // follow the letterhead if the office edits it.
   const company = useCompany()
 
-  const { data, isPlaceholderData, isError, error } = useBiltyPage(
-    company.slug,
-    query
-  )
+  const { data, isFetching, isError, error } = useBiltyPage(company.slug, query)
   const { create, update, remove } = useBiltyMutations(company.slug)
 
   const { bilties, meta } = data ?? EMPTY_PAGE
+
+  // Filtering and paging are navigations before they are queries — the URL is
+  // rewritten and the page re-fetched on the server — so the register has to
+  // hear about them from the controls rather than from its own query.
+  const [filtersPending, setFiltersPending] = React.useState(false)
+  const [pagePending, setPagePending] = React.useState(false)
+
+  const saving = create.isPending || update.isPending
+  const deleting = remove.isPending
+
+  // One loader for everything that leaves the rows on screen out of date:
+  // a search, a filter, a page turn, a save, a deletion, and the refetch each
+  // write kicks off afterwards.
+  const busy = isFetching || filtersPending || pagePending || saving || deleting
+  const busyLabel = saving
+    ? "Saving bilty…"
+    : deleting
+      ? "Deleting bilty…"
+      : "Fetching bilties…"
 
   const [form, setForm] = React.useState<{
     open: boolean
@@ -150,173 +167,174 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
         </Button>
       </header>
 
-      <BiltyFilters query={query} />
+      <BiltyFilters query={query} onPendingChange={setFiltersPending} />
 
-      {/* Dimmed rather than emptied while the next page is fetched — the rows
+      {/* Covered rather than emptied while the next page is fetched — the rows
           on screen are still the right answer to the previous question, and
-          blanking them makes every filter change look like a reload. */}
-      <Card
-        className="py-0"
-        data-pending={isPlaceholderData ? "" : undefined}
-        aria-busy={isPlaceholderData}
-      >
-        <Table
-          className={
-            isPlaceholderData ? "opacity-60 transition-opacity" : undefined
-          }
-        >
-          <TableHeader>
-            <TableRow>
-              <TableHead>L.R. No.</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Route</TableHead>
-              <TableHead>Consignor → Consignee</TableHead>
-              <TableHead className="text-right">Pkgs</TableHead>
-              <TableHead className="text-right">Charged wt.</TableHead>
-              <TableHead>Terms</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Gr. Total</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
+          blanking them makes every filter change look like a reload.
 
-          <TableBody>
-            {bilties.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={10} className="h-28 text-center">
-                  <p className="text-sm font-medium">
-                    {isError
-                      ? "Could not read the register"
-                      : "No bilties found"}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {isError
-                      ? error instanceof ApiError
-                        ? error.message
-                        : "Something went wrong reading the book."
-                      : filtersApplied
-                        ? "Nothing matches these filters."
-                        : "The register is empty — book the first bilty."}
-                  </p>
-                </TableCell>
+          The lorry is a sibling of the card, not a child: it holds itself in
+          view as the clerk scrolls, which the card's `overflow-hidden` would
+          otherwise stop. */}
+      <div className="relative">
+        <Card className="py-0" data-pending={busy ? "" : undefined}>
+          <Table aria-busy={busy}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>L.R. No.</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Route</TableHead>
+                <TableHead>Consignor → Consignee</TableHead>
+                <TableHead className="text-right">Pkgs</TableHead>
+                <TableHead className="text-right">Charged wt.</TableHead>
+                <TableHead>Terms</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Gr. Total</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
-            ) : (
-              bilties.map((bilty) => (
-                <TableRow key={bilty.id}>
-                  <TableCell className="font-medium tabular-nums">
-                    {bilty.lrNo}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {formatDate(bilty.lrDate)}
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      {bilty.from} → {bilty.to}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {bilty.lorryNo}
-                    </div>
-                  </TableCell>
-                  <TableCell className="max-w-64">
-                    <div className="truncate">{bilty.consignor.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {bilty.consignee.name}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatNumber(bilty.packages)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatNumber(bilty.chargedWeight)}
-                  </TableCell>
-                  <TableCell>
-                    <PaymentBadge type={bilty.paymentType} />
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={bilty.status} />
-                  </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">
-                    {formatINR(grossTotal(bilty.charges))}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<Button variant="ghost" size="icon-sm" />}
-                        aria-label={`Actions for bilty ${bilty.lrNo}`}
-                      >
-                        <EllipsisIcon />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setLr(bilty)
-                            setLrOpen(true)
-                          }}
-                        >
-                          <ScrollTextIcon />
-                          View bilty
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setDetail(bilty)
-                            setDetailOpen(true)
-                          }}
-                        >
-                          <EyeIcon />
-                          Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            setForm({ open: true, editing: bilty })
-                          }
-                        >
-                          <PencilIcon />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => setPendingDelete(bilty)}
-                        >
-                          <Trash2Icon />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+            </TableHeader>
+
+            <TableBody>
+              {bilties.length === 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={10} className="h-28 text-center">
+                    <p className="text-sm font-medium">
+                      {isError
+                        ? "Could not read the register"
+                        : "No bilties found"}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {isError
+                        ? error instanceof ApiError
+                          ? error.message
+                          : "Something went wrong reading the book."
+                        : filtersApplied
+                          ? "Nothing matches these filters."
+                          : "The register is empty — book the first bilty."}
+                    </p>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
+              ) : (
+                bilties.map((bilty) => (
+                  <TableRow key={bilty.id}>
+                    <TableCell className="font-medium tabular-nums">
+                      {bilty.lrNo}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(bilty.lrDate)}
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        {bilty.from} → {bilty.to}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {bilty.lorryNo}
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-64">
+                      <div className="truncate">{bilty.consignor.name}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {bilty.consignee.name}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatNumber(bilty.packages)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatNumber(bilty.chargedWeight)}
+                    </TableCell>
+                    <TableCell>
+                      <PaymentBadge type={bilty.paymentType} />
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={bilty.status} />
+                    </TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {formatINR(grossTotal(bilty.charges))}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={<Button variant="ghost" size="icon-sm" />}
+                          aria-label={`Actions for bilty ${bilty.lrNo}`}
+                        >
+                          <EllipsisIcon />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setLr(bilty)
+                              setLrOpen(true)
+                            }}
+                          >
+                            <ScrollTextIcon />
+                            View bilty
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setDetail(bilty)
+                              setDetailOpen(true)
+                            }}
+                          >
+                            <EyeIcon />
+                            Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setForm({ open: true, editing: bilty })
+                            }
+                          >
+                            <PencilIcon />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setPendingDelete(bilty)}
+                          >
+                            <Trash2Icon />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
 
-          {bilties.length > 0 ? (
-            <TableFooter>
-              <TableRow className="hover:bg-transparent">
-                {/* The totals are of everything the filters match, not of the
+            {bilties.length > 0 ? (
+              <TableFooter>
+                <TableRow className="hover:bg-transparent">
+                  {/* The totals are of everything the filters match, not of the
                     rows on this page — a clerk filtering to one party's To Pay
                     consignments wants what that party owes altogether. */}
-                <TableCell colSpan={8}>
-                  {formatNumber(meta.total)} of {formatNumber(meta.bookTotal)}{" "}
-                  bilties · balance to collect{" "}
-                  <span className="tabular-nums">
-                    {formatINR(meta.totals.balance)}
-                  </span>
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatINR(meta.totals.gross)}
-                </TableCell>
-                <TableCell />
-              </TableRow>
-            </TableFooter>
-          ) : null}
-        </Table>
-      </Card>
+                  <TableCell colSpan={8}>
+                    {formatNumber(meta.total)} of {formatNumber(meta.bookTotal)}{" "}
+                    bilties · balance to collect{" "}
+                    <span className="tabular-nums">
+                      {formatINR(meta.totals.balance)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatINR(meta.totals.gross)}
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableFooter>
+            ) : null}
+          </Table>
+        </Card>
+
+        <TruckLoadingOverlay show={busy} label={busyLabel} />
+      </div>
 
       <BiltyPagination
         query={query}
         page={meta.page}
         totalPages={meta.totalPages}
         total={meta.total}
+        onPendingChange={setPagePending}
       />
 
       <BiltyFormDialog

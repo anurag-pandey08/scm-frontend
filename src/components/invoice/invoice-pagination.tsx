@@ -5,30 +5,30 @@ import { usePathname, useRouter } from "next/navigation"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { queryToSearchParams, type RegisterQuery } from "@/lib/api/bilties"
+import { queryToSearchParams, type BillBookQuery } from "@/lib/api/invoices"
 import { formatNumber } from "@/lib/format"
 
 /**
- * Paging through the register.
+ * Paging through the bill book.
  *
  * The page number is in the URL like every other filter, so a clerk can send
- * "page 3 of the Delhi run" and it opens on page 3. There is no "go to page"
- * box: a register is read forwards and backwards from where you are, and the
+ * "page 3 of the raised bills" and it opens on page 3. There is no "go to
+ * page" box: a book is read forwards and backwards from where you are, and the
  * filters are how you get somewhere specific.
  */
-export function BiltyPagination({
+export function InvoicePagination({
   query,
   page,
   totalPages,
   total,
   onPendingChange,
 }: {
-  query: RegisterQuery
+  query: BillBookQuery
   page: number
   totalPages: number
-  /** Rows matching the filters, across every page. */
+  /** Bills matching the filters, across every page. */
   total: number
-  /** Told while the next page is being fetched, so the register can say so. */
+  /** Told while the next page is being fetched, so the book can say so. */
   onPendingChange?: (pending: boolean) => void
 }) {
   const router = useRouter()
@@ -38,8 +38,8 @@ export function BiltyPagination({
   React.useEffect(() => {
     onPendingChange?.(pending)
     // This row disappears entirely once a filter narrows the book to a single
-    // page, which can happen mid-navigation — without this the register would
-    // be left waiting on a page turn that no longer exists.
+    // page, which can happen mid-navigation — without this the book would be
+    // left waiting on a page turn that no longer exists.
     return () => onPendingChange?.(false)
   }, [pending, onPendingChange])
 

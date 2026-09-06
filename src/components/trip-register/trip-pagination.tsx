@@ -5,18 +5,18 @@ import { usePathname, useRouter } from "next/navigation"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { queryToSearchParams, type RegisterQuery } from "@/lib/api/bilties"
+import { queryToSearchParams, type RegisterQuery } from "@/lib/api/trips"
 import { formatNumber } from "@/lib/format"
 
 /**
- * Paging through the register.
+ * Paging through the daybook.
  *
  * The page number is in the URL like every other filter, so a clerk can send
- * "page 3 of the Delhi run" and it opens on page 3. There is no "go to page"
- * box: a register is read forwards and backwards from where you are, and the
- * filters are how you get somewhere specific.
+ * "page 3 of what the parties still owe" and it opens on page 3. There is no
+ * "go to page" box: a ledger is read forwards and backwards from where you
+ * are, and the filters are how you get somewhere specific.
  */
-export function BiltyPagination({
+export function TripPagination({
   query,
   page,
   totalPages,
@@ -28,7 +28,7 @@ export function BiltyPagination({
   totalPages: number
   /** Rows matching the filters, across every page. */
   total: number
-  /** Told while the next page is being fetched, so the register can say so. */
+  /** Told while the next page is being fetched, so the ledger can say so. */
   onPendingChange?: (pending: boolean) => void
 }) {
   const router = useRouter()
@@ -38,8 +38,8 @@ export function BiltyPagination({
   React.useEffect(() => {
     onPendingChange?.(pending)
     // This row disappears entirely once a filter narrows the book to a single
-    // page, which can happen mid-navigation — without this the register would
-    // be left waiting on a page turn that no longer exists.
+    // page, which can happen mid-navigation — without this the ledger would be
+    // left waiting on a page turn that no longer exists.
     return () => onPendingChange?.(false)
   }, [pending, onPendingChange])
 
@@ -52,8 +52,8 @@ export function BiltyPagination({
   const first = (page - 1) * query.pageSize + 1
   const last = Math.min(page * query.pageSize, total)
 
-  // One page of results is not paging — the range below the table would be
-  // saying "1 to 12 of 12" beside two buttons that do nothing.
+  // One page of results is not paging — the range below the spread would be
+  // saying "1 to 15 of 15" beside two buttons that do nothing.
   if (totalPages <= 1) return null
 
   return (

@@ -17,55 +17,55 @@ import {
 import {
   DEFAULT_QUERY,
   queryToSearchParams,
-  type RegisterQuery,
-} from "@/lib/api/bilties"
-import { BILTY_STATUSES, PAYMENT_TYPES } from "@/lib/types"
+  type SlipBookQuery,
+} from "@/lib/api/loading-slips"
+import { LOADING_SLIP_STATUSES } from "@/lib/loading-slip-types"
 
+/**
+ * The filter options, each with the label the closed trigger shows for it.
+ * `Select` is handed these as `items` so the trigger can name the choice —
+ * without them it falls back to printing the raw value, and "all" is not what
+ * the row reads as.
+ */
 const STATUS_FILTERS = [
   { value: "all", label: "All statuses" },
-  ...BILTY_STATUSES.map((status) => ({ value: status, label: status })),
+  ...LOADING_SLIP_STATUSES.map((status) => ({ value: status, label: status })),
 ]
 
-const PAYMENT_FILTERS = [
-  { value: "all", label: "All terms" },
-  ...PAYMENT_TYPES.map((type) => ({ value: type, label: type })),
-]
-
-/** How long the clerk stops typing before the register goes and asks. */
+/** How long the clerk stops typing before the book goes and asks. */
 const TYPING_PAUSE_MS = 300
 
 /**
  * The filter row, which writes to the address bar rather than to state.
  *
- * That is the whole design. The filters are in the URL, so a filtered register
- * is a link — "everything still to collect on the Delhi run" can be sent to the
- * next desk, bookmarked, or reloaded without losing it — and the server can
- * read the same filters when it renders the page, which is what lets the first
- * paint arrive already filtered instead of filtering itself afterwards.
+ * That is the whole design, and it is the register's. The filters are in the
+ * URL, so a filtered slip book is a link — "every lorry still to load for Gaal
+ * Cargo" can be sent to the next desk, bookmarked, or reloaded without losing
+ * it — and the server can read the same filters when it renders the page,
+ * which is what lets the first paint arrive already filtered.
  *
  * `replace` rather than `push`: setting a filter is refining one view, not
  * moving to another, and pushing would make the back button walk the clerk
  * backwards through every keystroke.
  */
-export function BiltyFilters({
+export function LoadingSlipFilters({
   query,
   onPendingChange,
 }: {
-  query: RegisterQuery
+  query: SlipBookQuery
   /**
-   * Told whenever a filter is on its way to the server, so the register can
-   * put its loader up. The wait starts here, not at the query: the URL is
-   * changed first and the new page is fetched on the server, so by the time
-   * the register's own query key moves, most of the round trip is already
-   * spent.
+   * Told whenever a filter is on its way to the server, so the book can put
+   * its loader up. The wait starts here, not at the query: the URL is changed
+   * first and the new page fetched on the server, so by the time the book's
+   * own query key moves, most of the round trip is already spent.
    */
   onPendingChange?: (pending: boolean) => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
 
-  // The search box is typed into far faster than the register can answer, so
-  // it holds its own value and pushes it to the URL once the typing stops.
+  // The search box is typed into far faster than the book can answer, so it
+  // holds its own value and pushes it to the URL once the typing stops.
   // Everything else is read straight from the URL.
   const [typed, setTyped] = React.useState(query.q)
   const [pending, startTransition] = React.useTransition()
@@ -80,10 +80,10 @@ export function BiltyFilters({
   }
 
   const apply = React.useCallback(
-    (next: Partial<RegisterQuery>) => {
+    (next: Partial<SlipBookQuery>) => {
       // Any change to what is being looked at puts the clerk back on page one.
       // Staying on page 4 of a filter that now has two pages shows nothing at
-      // all, which reads as "no bilties" rather than "wrong page".
+      // all, which reads as "no slips" rather than "wrong page".
       const params = queryToSearchParams({ ...query, ...next, page: 1 })
       const search = params.size > 0 ? `?${params.toString()}` : ""
 
@@ -93,7 +93,7 @@ export function BiltyFilters({
   )
 
   // Waits out the pause after the last keystroke, and is cancelled by the next
-  // one — so a clerk typing "Bengaluru" asks once, not nine times.
+  // one — so a clerk typing a lorry number asks once, not eleven times.
   React.useEffect(() => {
     if (typed === query.q) return
 
@@ -103,26 +103,25 @@ export function BiltyFilters({
 
   React.useEffect(() => {
     onPendingChange?.(pending)
-    // Leaves the register unblocked rather than stuck behind a loader for a
+    // Leaves the book unblocked rather than stuck behind a loader for a
     // navigation nobody is waiting on any more.
     return () => onPendingChange?.(false)
   }, [pending, onPendingChange])
 
-  const filtersApplied =
-    query.q !== "" || query.status !== "all" || query.payment !== "all"
+  const filtersApplied = query.q !== "" || query.status !== "all"
 
   return (
     <div className="flex flex-wrap items-end gap-3">
       <div className="grid min-w-56 flex-1 gap-1.5">
         <Label htmlFor="search" className="sr-only">
-          Search bilties
+          Search loading slips
         </Label>
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             id="search"
             className="pl-8"
-            placeholder="L.R. no., party, lorry, destination, e-way bill…"
+            placeholder="Slip no., party, lorry, destination…"
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
           />
@@ -143,28 +142,6 @@ export function BiltyFilters({
           </SelectTrigger>
           <SelectContent>
             {STATUS_FILTERS.map(({ value, label }) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor="filter-payment" className="sr-only">
-          Freight terms
-        </Label>
-        <Select
-          items={PAYMENT_FILTERS}
-          value={query.payment}
-          onValueChange={(value) => value && apply({ payment: value })}
-        >
-          <SelectTrigger id="filter-payment" className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PAYMENT_FILTERS.map(({ value, label }) => (
               <SelectItem key={value} value={value}>
                 {label}
               </SelectItem>

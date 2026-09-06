@@ -6,6 +6,10 @@
  * It is not an L.R. and not a bill. Nothing is booked and nobody is charged;
  * it only tells the loading point which lorry is coming, what was agreed for
  * it, and how much of that the driver has already been handed.
+ *
+ * This is the shape the screens and the printed slip are written against.
+ * `lib/schemas/loading-slip.ts` is what parses it off the API and what the
+ * form validates, and it is checked against these types at compile time.
  */
 
 export const LOADING_SLIP_STATUSES = [
@@ -57,8 +61,15 @@ export interface LoadingSlip {
  * The Balance Rs box — what is left to pay the lorry at the far end. Detention
  * allowed at the loading point is owed on top of the hire, and the advance has
  * already gone to the driver, so both move the balance.
+ *
+ * Takes the three figures rather than a whole slip, so the form can price a
+ * draft that has no id yet and the register can price a slip that has.
  */
-export function slipBalance(slip: LoadingSlip): number {
+export function slipBalance(slip: {
+  totalFreight: number
+  detention: number
+  advance: number
+}): number {
   return slip.totalFreight + slip.detention - slip.advance
 }
 
@@ -66,29 +77,4 @@ export function slipBalance(slip: LoadingSlip): number {
 export function formatDimensions(dimensions: SlipDimensions): string {
   const { length, width, height } = dimensions
   return [length, width, height].map((v) => v.toFixed(2)).join(" X ")
-}
-
-/** A blank slip. `from` is the placing firm's own station, so it is passed in. */
-export function emptyLoadingSlip(
-  slipNo: string,
-  slipDate: string,
-  from: string
-): LoadingSlip {
-  return {
-    id: "",
-    slipNo,
-    slipDate,
-    party: "",
-    vehicleNo: "",
-    from,
-    to: "",
-    rate: 0,
-    weight: 0,
-    totalFreight: 0,
-    advance: 0,
-    detention: 0,
-    dimensions: { length: 0, width: 0, height: 0 },
-    status: "Draft",
-    remarks: "",
-  }
 }

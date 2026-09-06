@@ -8,8 +8,30 @@
  * and the slip book are each one firm's own and never cross; this one daybook
  * is worked by both, and both see the same rows. Anything reading it therefore
  * asks for the whole register rather than for a firm's slice of it — there is
- * no `CompanySlug` anywhere in this file, and that is the point.
+ * no `CompanySlug` anywhere in this file, none in `lib/api/trips.ts`, and none
+ * in the API path either, and that is the point.
+ *
+ * This is the shape the ledger spread is written against.
+ * `lib/schemas/trip.ts` is what parses it off the API and what the form
+ * validates, and it is checked against these types at compile time.
  */
+
+/**
+ * What the register can be narrowed to.
+ *
+ * Not a status — a trip has none. These are the two questions the daybook is
+ * actually opened to answer: who still owes us, and who are we still to pay.
+ */
+export const TRIP_FILTERS = ["all", "party-owes", "lorry-owed"] as const
+export type TripFilter = (typeof TRIP_FILTERS)[number]
+
+/**
+ * Every trip runs out of the booking office's own station.
+ *
+ * A plain constant rather than something read off a `Company`: the register
+ * belongs to neither firm, so there is no letterhead to take it from.
+ */
+export const REGISTER_ORIGIN = "Ahmedabad"
 
 /**
  * The money columns split into two blocks on the paper, and they run in
@@ -64,51 +86,31 @@ export interface Trip {
   balanceDate: string
 }
 
-/** Rate × weight — the lorry hire the advance and balance are drawn against. */
-export function tripFreight(trip: Trip): number {
+/**
+ * Rate × weight — the lorry hire the advance and balance are drawn against.
+ *
+ * Takes the two figures rather than a whole trip, so the form can price a
+ * draft that has no id yet and the spread can price a row that has. The
+ * rounding is matched in SQL by the register's footer — see `FREIGHT` in
+ * scm-backend/src/repositories/trip.repository.ts.
+ */
+export function tripFreight(trip: { rate: number; weight: number }): number {
   return Math.round(trip.rate * trip.weight)
 }
 
 /** What the party has actually paid in, across both receipts. */
-export function tripReceived(trip: Trip): number {
+export function tripReceived(trip: {
+  advanceReceiveRs: number
+  balanceReceiveRs: number
+}): number {
   return trip.advanceReceiveRs + trip.balanceReceiveRs
 }
 
 /** Still to come in from the party. Negative would mean they have overpaid. */
-export function tripDueFromParty(trip: Trip): number {
+export function tripDueFromParty(trip: {
+  partyPayment: number
+  advanceReceiveRs: number
+  balanceReceiveRs: number
+}): number {
   return trip.partyPayment - tripReceived(trip)
-}
-
-/** Still to go out to the lorry. */
-export function tripDueToLorry(trip: Trip): number {
-  return trip.balance
-}
-
-/** A blank row. `from` is the station the office books out of. */
-export function emptyTrip(date: string, from: string): Trip {
-  return {
-    id: "",
-    date,
-    truckNo: "",
-    partyName: "",
-    brokerName: "",
-    from,
-    to: "",
-    goods: "",
-    rate: 0,
-    weight: 0,
-    advance: 0,
-    balance: 0,
-    toPay: 0,
-    receiveDate: "",
-    paidDate: "",
-    lrNo: "",
-    commission: 0,
-    remarks: "",
-    partyPayment: 0,
-    advanceReceiveRs: 0,
-    advanceDate: "",
-    balanceReceiveRs: 0,
-    balanceDate: "",
-  }
 }
