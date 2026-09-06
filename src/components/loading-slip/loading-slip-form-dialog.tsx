@@ -1,7 +1,18 @@
 "use client"
 
 import * as React from "react"
+import { zodResolver } from "@hookform/resolvers/zod"
+import {
+  Controller,
+  useForm,
+  useWatch,
+  type Control,
+  type FieldPath,
+  type UseFormRegisterReturn,
+} from "react-hook-form"
+import { toast } from "sonner"
 
+import { useNextSlipNo } from "@/components/loading-slip/use-loading-slips"
 import { DateField } from "@/components/date-field"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,16 +33,23 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { ApiError } from "@/lib/api/client"
+import type { Company } from "@/lib/companies"
 import { formatINR } from "@/lib/format"
 import {
   LOADING_SLIP_STATUSES,
   slipBalance,
   type LoadingSlip,
-  type SlipDimensions,
 } from "@/lib/loading-slip-types"
+import {
+  emptyLoadingSlipInput,
+  loadingSlipInputOf,
+  loadingSlipSchema,
+  type LoadingSlipInput,
+} from "@/lib/schemas/loading-slip"
 import { cn } from "@/lib/utils"
 
-type Errors = Partial<Record<string, string>>
+type SlipField = FieldPath<LoadingSlipInput>
 
 function Field({
   label,
@@ -89,122 +107,246 @@ function Section({
   )
 }
 
-/** Money and measure inputs: blank rather than a stubborn 0 when empty. */
-function NumberInput({
-  id,
-  value,
-  onValueChange,
+function TextField({
+  label,
+  name,
+  registration,
+  error,
+  hint,
+  className,
+  inputClassName,
+  placeholder,
+  multiline,
+}: {
+  label: string
+  name: string
+  registration: UseFormRegisterReturn
+  error?: string
+  hint?: string
+  className?: string
+  inputClassName?: string
+  placeholder?: string
+  multiline?: boolean
+}) {
+  const Control = multiline ? Textarea : Input
+
+  return (
+    <Field
+      label={label}
+      htmlFor={name}
+      error={error}
+      hint={hint}
+      className={className}
+    >
+      <Control
+        id={name}
+        className={inputClassName}
+        placeholder={placeholder}
+        {...(multiline ? { rows: 2 } : {})}
+        {...registration}
+      />
+    </Field>
+  )
+}
+
+/**
+ * A money, weight or feet box: blank rather than a stubborn 0 when empty, and
+ * a number rather than a string when read.
+ *
+ * Controlled through a Controller because the value has to be a number in the
+ * form's data — `register` with `valueAsNumber` reports NaN for an empty box,
+ * and NaN in a hire figure is worse than a zero.
+ *
+ * `onValueChange` is for the two boxes that do not simply store what they are
+ * given: typing a rate or a weight also prices the hire beside them.
+ */
+function NumberField({
+  label,
+  name,
+  control,
+  error,
+  hint,
   step,
   className,
-  placeholder = "0",
+  onValueChange,
 }: {
-  id: string
-  value: number
-  onValueChange: (value: number) => void
+  label: string
+  name: SlipField
+  control: Control<LoadingSlipInput>
+  error?: string
+  hint?: string
   step?: string
   className?: string
-  placeholder?: string
+  onValueChange?: (value: number) => void
 }) {
   return (
-    <Input
-      id={id}
-      type="number"
-      inputMode="decimal"
-      min={0}
-      step={step}
-      placeholder={placeholder}
-      className={cn("tabular-nums", className)}
-      value={value === 0 ? "" : String(value)}
-      onChange={(event) => {
-        const parsed = Number(event.target.value)
-        onValueChange(Number.isFinite(parsed) && parsed >= 0 ? parsed : 0)
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => {
+        const value = typeof field.value === "number" ? field.value : 0
+
+        return (
+          <Field
+            label={label}
+            htmlFor={name}
+            error={error}
+            hint={hint}
+            className={className}
+          >
+            <Input
+              id={name}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step={step}
+              placeholder="0"
+              className="tabular-nums"
+              value={value === 0 ? "" : String(value)}
+              onBlur={field.onBlur}
+              onChange={(event) => {
+                const parsed = Number(event.target.value)
+                const next = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+                field.onChange(next)
+                onValueChange?.(next)
+              }}
+            />
+          </Field>
+        )
       }}
     />
   )
 }
 
+/** Today, as the clerk would write it. */
+function today(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export function LoadingSlipFormDialog({
   open,
   onOpenChange,
-  mode,
-  initial,
-  takenSlipNos,
+  editing,
+  company,
   onSave,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  mode: "create" | "edit"
-  initial: LoadingSlip
-  /** Slip numbers already in the book, excluding the record being edited. */
-  takenSlipNos: string[]
-  onSave: (slip: LoadingSlip) => void
+  /** The slip being amended, or null when a new one is being written. */
+  editing: LoadingSlip | null
+  /** Whose book is being written in — it owns the origin station. */
+  company: Company
+  onSave: (input: LoadingSlipInput) => Promise<void>
 }) {
-  const [draft, setDraft] = React.useState<LoadingSlip>(initial)
-  const [errors, setErrors] = React.useState<Errors>({})
-  const [loaded, setLoaded] = React.useState<LoadingSlip>(initial)
+  const creating = editing === null
 
-  // The caller hands over a fresh object every time the dialog is opened, so a
-  // changed identity means "start again from this record" — discard the draft.
-  if (initial !== loaded) {
-    setLoaded(initial)
-    setDraft(initial)
-    setErrors({})
+  // Only asked while a new slip is being written; an amendment keeps its own
+  // number.
+  const nextSlipNo = useNextSlipNo(company.slug, open && creating)
+
+  const blank = React.useCallback(
+    (slipNo: string) => emptyLoadingSlipInput(slipNo, today(), company.origin),
+    [company]
+  )
+
+  const form = useForm<LoadingSlipInput>({
+    resolver: zodResolver(loadingSlipSchema),
+    defaultValues: editing ? loadingSlipInputOf(editing) : blank(""),
+    mode: "onTouched",
+  })
+
+  const {
+    control,
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+    reset,
+    setError,
+    setValue,
+    getValues,
+  } = form
+
+  // Reloads the form whenever the dialog is pointed at a different record —
+  // opened on another slip, or switched from amending to writing. Without this
+  // the dialog reopens on the last slip's figures.
+  const [loaded, setLoaded] = React.useState<LoadingSlip | null>(editing)
+  const [wasOpen, setWasOpen] = React.useState(open)
+  if (open && (editing !== loaded || !wasOpen)) {
+    setLoaded(editing)
+    setWasOpen(true)
+    reset(editing ? loadingSlipInputOf(editing) : blank(""))
   }
+  if (!open && wasOpen) setWasOpen(false)
 
-  const set = <K extends keyof LoadingSlip>(key: K, value: LoadingSlip[K]) =>
-    setDraft((d) => ({ ...d, [key]: value }))
+  // The number arrives after the dialog has already opened, so it is written in
+  // when it lands rather than waited for — the clerk can be typing the lorry
+  // number while the book is still being asked.
+  React.useEffect(() => {
+    if (open && creating && nextSlipNo.data) {
+      setValue("slipNo", nextSlipNo.data)
+    }
+  }, [open, creating, nextSlipNo.data, setValue])
 
-  const setBed = (key: keyof SlipDimensions, value: number) =>
-    setDraft((d) => ({ ...d, dimensions: { ...d.dimensions, [key]: value } }))
+  // Watched rather than read off `getValues`, because the balance below has to
+  // move as the three money boxes are typed into.
+  const totalFreight = useWatch({ control, name: "totalFreight" })
+  const advance = useWatch({ control, name: "advance" })
+  const detention = useWatch({ control, name: "detention" })
+  const balance = slipBalance({
+    totalFreight: totalFreight || 0,
+    advance: advance || 0,
+    detention: detention || 0,
+  })
 
-  // Rate × weight is what the office quotes, so it fills the hire in as the two
-  // are typed. The figure stays editable — lorries also go on a lump sum, and
-  // then the rate box is left at zero exactly as on the paper.
-  const price = (rate: number, weight: number) =>
-    setDraft((d) => ({
-      ...d,
-      rate,
-      weight,
-      totalFreight: rate && weight ? Math.round(rate * weight) : d.totalFreight,
-    }))
+  /**
+   * Rate × weight is what the office quotes, so it prices the hire as the two
+   * are typed. The figure stays editable — lorries also go on a lump sum, and
+   * then the rate box is left at zero exactly as on the paper, which is why a
+   * zero on either side leaves the hire alone rather than wiping it.
+   */
+  function price(rate: number, weight: number) {
+    if (!rate || !weight) return
 
-  const balance = slipBalance(draft)
-
-  function handleSave() {
-    const next: Errors = {}
-    const slipNo = draft.slipNo.trim()
-    if (!slipNo) next.slipNo = "Slip number is required"
-    else if (takenSlipNos.includes(slipNo))
-      next.slipNo = `Slip ${slipNo} is already in the book`
-    if (!draft.slipDate) next.slipDate = "Date is required"
-    if (!draft.party.trim()) next.party = "Whose order the lorry is against"
-    if (!draft.vehicleNo.trim()) next.vehicleNo = "Lorry number is required"
-    if (!draft.to.trim()) next.to = "Destination is required"
-    if (!draft.totalFreight) next.totalFreight = "Agreed hire is required"
-    if (draft.advance > draft.totalFreight + draft.detention)
-      next.advance = "Advance is more than the whole hire"
-
-    setErrors(next)
-    if (Object.keys(next).length > 0) return
-
-    onSave({
-      ...draft,
-      slipNo,
-      id: draft.id || `slip-${slipNo}`,
-      party: draft.party.trim(),
-      vehicleNo: draft.vehicleNo.trim().toUpperCase(),
-      dimensions: { ...draft.dimensions },
+    setValue("totalFreight", Math.round(rate * weight), {
+      shouldDirty: true,
+      shouldValidate: true,
     })
   }
+
+  const onSubmit = handleSubmit(async (input) => {
+    try {
+      await onSave(input)
+    } catch (cause) {
+      if (!(cause instanceof ApiError)) {
+        toast.error("Could not save the slip")
+        return
+      }
+
+      // The server addresses fields the way this form does — `advance`,
+      // `dimensions.length` — so a rejection lands on the box that caused it.
+      if (cause.fieldErrors) {
+        for (const [path, messages] of Object.entries(cause.fieldErrors)) {
+          if (path === "_form" || !messages[0]) continue
+          setError(path as SlipField, { type: "server", message: messages[0] })
+        }
+      }
+
+      // A number taken since the form was opened comes back as a conflict
+      // rather than a field error, and it is about one box.
+      if (cause.status === 409) {
+        setError("slipNo", { type: "server", message: cause.message })
+      }
+
+      toast.error(cause.message)
+    }
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create"
-              ? "New loading slip"
-              : `Edit slip ${initial.slipNo}`}
+            {creating ? "New loading slip" : `Edit slip ${editing.slipNo}`}
           </DialogTitle>
           <DialogDescription>
             Fields follow the printed slip book. One slip is one lorry placed
@@ -214,141 +356,133 @@ export function LoadingSlipFormDialog({
 
         <div className="-mx-4 overflow-y-auto px-4">
           <Section title="Slip">
-            <Field label="No." htmlFor="slipNo" error={errors.slipNo}>
-              <Input
-                id="slipNo"
-                className="tabular-nums"
-                value={draft.slipNo}
-                onChange={(e) => set("slipNo", e.target.value)}
-              />
-            </Field>
-            <Field label="Date" htmlFor="slipDate" error={errors.slipDate}>
-              <DateField
-                id="slipDate"
-                value={draft.slipDate}
-                onValueChange={(v) => set("slipDate", v)}
-              />
-            </Field>
-            <Field
+            <TextField
+              label="No."
+              name="slipNo"
+              registration={register("slipNo")}
+              error={errors.slipNo?.message}
+              inputClassName="tabular-nums"
+              hint={
+                creating && nextSlipNo.isFetching
+                  ? "Asking the book for the next number…"
+                  : undefined
+              }
+            />
+            <Controller
+              control={control}
+              name="slipDate"
+              render={({ field }) => (
+                <Field
+                  label="Date"
+                  htmlFor="slipDate"
+                  error={errors.slipDate?.message}
+                >
+                  <DateField
+                    id="slipDate"
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+            <TextField
               label="To M/s."
-              htmlFor="party"
-              error={errors.party}
+              name="party"
+              registration={register("party")}
+              error={errors.party?.message}
               hint="The party or transport firm whose order the lorry is against"
-            >
-              <Input
-                id="party"
-                value={draft.party}
-                onChange={(e) => set("party", e.target.value)}
-              />
-            </Field>
-            <Field label="Status" htmlFor="status">
-              <Select
-                value={draft.status}
-                onValueChange={(value) => value && set("status", value)}
-              >
-                <SelectTrigger id="status" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LOADING_SLIP_STATUSES.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            />
+            <Controller
+              control={control}
+              name="status"
+              render={({ field }) => (
+                <Field label="Status" htmlFor="status">
+                  <Select
+                    items={LOADING_SLIP_STATUSES.map((s) => ({
+                      value: s,
+                      label: s,
+                    }))}
+                    value={field.value}
+                    onValueChange={(value) => value && field.onChange(value)}
+                  >
+                    <SelectTrigger id="status" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LOADING_SLIP_STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+            />
           </Section>
 
           <Section title="Lorry and route">
-            <Field
+            <TextField
               label="Vehicle no."
-              htmlFor="vehicleNo"
-              error={errors.vehicleNo}
-            >
-              <Input
-                id="vehicleNo"
-                placeholder="GJ-01-BT-4471"
-                value={draft.vehicleNo}
-                onChange={(e) => set("vehicleNo", e.target.value.toUpperCase())}
-              />
-            </Field>
-            <Field label="From" htmlFor="from">
-              <Input
-                id="from"
-                value={draft.from}
-                onChange={(e) => set("from", e.target.value)}
-              />
-            </Field>
-            <Field
+              name="vehicleNo"
+              registration={register("vehicleNo")}
+              error={errors.vehicleNo?.message}
+              placeholder="GJ-01-BT-4471"
+              inputClassName="uppercase"
+            />
+            <TextField
+              label="From"
+              name="from"
+              registration={register("from")}
+              error={errors.from?.message}
+            />
+            <TextField
               label="To"
-              htmlFor="to"
-              error={errors.to}
+              name="to"
+              registration={register("to")}
+              error={errors.to?.message}
+              placeholder="Hathras"
               hint="Typed, not picked — a lorry is placed wherever the order sends it"
-            >
-              <Input
-                id="to"
-                placeholder="Hathras"
-                value={draft.to}
-                onChange={(e) => set("to", e.target.value)}
-              />
-            </Field>
+            />
           </Section>
 
           <Section title="Hire">
-            <Field
+            <NumberField
               label="Rate (₹/ton)"
-              htmlFor="rate"
+              name="rate"
+              control={control}
+              error={errors.rate?.message}
               hint="Leave at zero on a lump-sum trip"
-            >
-              <NumberInput
-                id="rate"
-                value={draft.rate}
-                onValueChange={(v) => price(v, draft.weight)}
-              />
-            </Field>
-            <Field label="Weight (ton)" htmlFor="weight">
-              <NumberInput
-                id="weight"
-                step="0.01"
-                value={draft.weight}
-                onValueChange={(v) => price(draft.rate, v)}
-              />
-            </Field>
-            <Field
+              onValueChange={(next) => price(next, getValues("weight"))}
+            />
+            <NumberField
+              label="Weight (ton)"
+              name="weight"
+              control={control}
+              step="0.01"
+              error={errors.weight?.message}
+              onValueChange={(next) => price(getValues("rate"), next)}
+            />
+            <NumberField
               label="Total freight (₹)"
-              htmlFor="totalFreight"
-              error={errors.totalFreight}
-            >
-              <NumberInput
-                id="totalFreight"
-                value={draft.totalFreight}
-                onValueChange={(v) => set("totalFreight", v)}
-              />
-            </Field>
-            <Field
+              name="totalFreight"
+              control={control}
+              error={errors.totalFreight?.message}
+            />
+            <NumberField
               label="Advance (₹)"
-              htmlFor="advance"
-              error={errors.advance}
+              name="advance"
+              control={control}
+              error={errors.advance?.message}
               hint="Handed to the driver at the loading point"
-            >
-              <NumberInput
-                id="advance"
-                value={draft.advance}
-                onValueChange={(v) => set("advance", v)}
-              />
-            </Field>
-            <Field
+            />
+            <NumberField
               label="Loading point detention (₹)"
-              htmlFor="detention"
+              name="detention"
+              control={control}
+              error={errors.detention?.message}
               hint="Allowed on top of the hire"
-            >
-              <NumberInput
-                id="detention"
-                value={draft.detention}
-                onValueChange={(v) => set("detention", v)}
-              />
-            </Field>
+            />
 
             <div className="self-end rounded-lg bg-muted/60 p-3">
               <dl className="flex items-center justify-between text-sm">
@@ -365,46 +499,39 @@ export function LoadingSlipFormDialog({
             note="Feet — the bed the order asked for, printed L X W X H"
           >
             <div className="grid grid-cols-3 gap-3 sm:col-span-2">
-              <Field label="Length" htmlFor="bedLength">
-                <NumberInput
-                  id="bedLength"
-                  step="0.01"
-                  value={draft.dimensions.length}
-                  onValueChange={(v) => setBed("length", v)}
-                />
-              </Field>
-              <Field label="Width" htmlFor="bedWidth">
-                <NumberInput
-                  id="bedWidth"
-                  step="0.01"
-                  value={draft.dimensions.width}
-                  onValueChange={(v) => setBed("width", v)}
-                />
-              </Field>
-              <Field label="Height" htmlFor="bedHeight">
-                <NumberInput
-                  id="bedHeight"
-                  step="0.01"
-                  value={draft.dimensions.height}
-                  onValueChange={(v) => setBed("height", v)}
-                />
-              </Field>
+              <NumberField
+                label="Length"
+                name="dimensions.length"
+                control={control}
+                step="0.01"
+                error={errors.dimensions?.length?.message}
+              />
+              <NumberField
+                label="Width"
+                name="dimensions.width"
+                control={control}
+                step="0.01"
+                error={errors.dimensions?.width?.message}
+              />
+              <NumberField
+                label="Height"
+                name="dimensions.height"
+                control={control}
+                step="0.01"
+                error={errors.dimensions?.height?.message}
+              />
             </div>
           </Section>
 
           <Section title="Remarks" columns={false}>
-            <Field
+            <TextField
               label="Printed on the slip"
-              htmlFor="remarks"
+              name="remarks"
+              registration={register("remarks")}
+              error={errors.remarks?.message}
               hint="Goes on the paper above the bank details, so keep it to what the loading point needs"
-            >
-              <Textarea
-                id="remarks"
-                rows={2}
-                value={draft.remarks}
-                onChange={(e) => set("remarks", e.target.value)}
-              />
-            </Field>
+              multiline
+            />
           </Section>
         </div>
 
@@ -416,11 +543,15 @@ export function LoadingSlipFormDialog({
             </span>
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
-            <Button onClick={handleSave}>
-              {mode === "create" ? "Save slip" : "Save changes"}
+            <Button disabled={isSubmitting} onClick={() => void onSubmit()}>
+              {creating ? "Save slip" : "Save changes"}
             </Button>
           </div>
         </DialogFooter>
