@@ -1,8 +1,21 @@
 "use client"
 
 import * as React from "react"
+import { zodResolver } from "@hookform/resolvers/zod"
+import {
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+  type Control,
+  type FieldPath,
+  type UseFormRegisterReturn,
+  type UseFormSetValue,
+} from "react-hook-form"
 import { PlusIcon, Trash2Icon } from "lucide-react"
+import { toast } from "sonner"
 
+import { useNextBillNo } from "@/components/invoice/use-invoices"
 import { DateField } from "@/components/date-field"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +36,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { ApiError } from "@/lib/api/client"
+import type { Company } from "@/lib/companies"
 import { formatINR } from "@/lib/format"
 import {
   INVOICE_STATUSES,
@@ -30,13 +45,17 @@ import {
   freightAmount,
   invoiceTotal,
   type Invoice,
-  type InvoiceLine,
   type LineKind,
 } from "@/lib/invoice-types"
-import type { Party } from "@/lib/types"
+import {
+  emptyInvoiceInput,
+  invoiceInputOf,
+  invoiceSchema,
+  type InvoiceInput,
+} from "@/lib/schemas/invoice"
 import { cn } from "@/lib/utils"
 
-type Errors = Partial<Record<string, string>>
+type InvoiceField = FieldPath<InvoiceInput>
 
 function Field({
   label,
@@ -94,68 +113,146 @@ function Section({
   )
 }
 
-/** Money and count inputs: blank rather than a stubborn 0 when empty. */
-function NumberInput({
-  id,
-  value,
-  onValueChange,
-  step,
+function TextField({
+  label,
+  name,
+  registration,
+  error,
+  hint,
   className,
-  placeholder = "0",
+  inputClassName,
+  placeholder,
+  multiline,
 }: {
-  id: string
-  value: number
-  onValueChange: (value: number) => void
-  step?: string
+  label: string
+  name: string
+  registration: UseFormRegisterReturn
+  error?: string
+  hint?: string
   className?: string
+  inputClassName?: string
   placeholder?: string
+  multiline?: boolean
+}) {
+  const Control = multiline ? Textarea : Input
+
+  return (
+    <Field
+      label={label}
+      htmlFor={name}
+      error={error}
+      hint={hint}
+      className={className}
+    >
+      <Control
+        id={name}
+        className={inputClassName}
+        placeholder={placeholder}
+        {...(multiline ? { rows: 2 } : {})}
+        {...registration}
+      />
+    </Field>
+  )
+}
+
+/**
+ * A money or weight box: blank rather than a stubborn 0 when empty, and a
+ * number rather than a string when read.
+ *
+ * Controlled through a Controller because the value has to be a number in the
+ * form's data — `register` with `valueAsNumber` reports NaN for an empty box,
+ * and NaN in a charge column is worse than a zero.
+ *
+ * `onValueChange` is for the two boxes that do not simply store what they are
+ * given: typing a rate or a weight also fills the amount in beside them.
+ */
+function NumberField({
+  label,
+  name,
+  control,
+  error,
+  step,
+  onValueChange,
+}: {
+  label: string
+  name: InvoiceField
+  control: Control<InvoiceInput>
+  error?: string
+  step?: string
+  onValueChange?: (value: number) => void
 }) {
   return (
-    <Input
-      id={id}
-      type="number"
-      inputMode="decimal"
-      min={0}
-      step={step}
-      placeholder={placeholder}
-      className={cn("tabular-nums", className)}
-      value={value === 0 ? "" : String(value)}
-      onChange={(event) => {
-        const parsed = Number(event.target.value)
-        onValueChange(Number.isFinite(parsed) && parsed >= 0 ? parsed : 0)
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => {
+        const value = typeof field.value === "number" ? field.value : 0
+
+        return (
+          <Field label={label} htmlFor={name} error={error}>
+            <Input
+              id={name}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step={step}
+              placeholder="0"
+              className="tabular-nums"
+              value={value === 0 ? "" : String(value)}
+              onBlur={field.onBlur}
+              onChange={(event) => {
+                const parsed = Number(event.target.value)
+                const next = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+                field.onChange(next)
+                onValueChange?.(next)
+              }}
+            />
+          </Field>
+        )
       }}
     />
   )
 }
 
 /**
- * One row of the charge column. A freight line prices a challan by the tonne
- * and fills its own amount in; a charge line is a lump sum, so the rate and
- * weight boxes stay off it entirely — same as the paper.
+ * One row of the charge column.
+ *
+ * A freight line prices a challan by the tonne and fills its own amount in; a
+ * charge line is a lump sum, so the challan, date, rate and weight boxes stay
+ * off it entirely — same as the paper. The values behind those boxes are left
+ * alone here and blanked by the API on the way in, so a line switched from one
+ * kind to the other cannot print a rate against "Detention".
  */
 function LineRow({
-  line,
   index,
-  onChange,
+  kind,
+  control,
+  setValue,
+  errors,
   onRemove,
   removable,
 }: {
-  line: InvoiceLine
   index: number
-  onChange: (line: InvoiceLine) => void
+  kind: LineKind
+  control: Control<InvoiceInput>
+  setValue: UseFormSetValue<InvoiceInput>
+  errors: Partial<Record<string, string>>
   onRemove: () => void
   removable: boolean
 }) {
-  const freight = line.kind === "Freight"
-  const id = (part: string) => `line-${line.id}-${part}`
-
-  const set = <K extends keyof InvoiceLine>(key: K, value: InvoiceLine[K]) =>
-    onChange({ ...line, [key]: value })
+  const freight = kind === "Freight"
+  const at = (part: string) => `lines.${index}.${part}` as InvoiceField
 
   // Rate × weight is what the office quotes, so it fills the amount in as the
   // two are typed. The amount stays editable — bills get rounded off.
   const price = (rate: number, weight: number) =>
-    onChange({ ...line, rate, weight, amount: freightAmount(rate, weight) })
+    setValue(at("amount"), freightAmount(rate, weight), {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+
+  const rate = useWatch({ control, name: at("rate") })
+  const weight = useWatch({ control, name: at("weight") })
 
   return (
     <div className="rounded-lg border p-3">
@@ -182,76 +279,106 @@ function LineRow({
       >
         {freight ? (
           <>
-            <Field label="Challan No." htmlFor={id("challan")}>
-              <Input
-                id={id("challan")}
-                className="tabular-nums"
-                placeholder="L.R. no."
-                value={line.challanNo}
-                onChange={(e) => set("challanNo", e.target.value)}
-              />
-            </Field>
-            <Field label="Date" htmlFor={id("date")}>
-              <DateField
-                id={id("date")}
-                value={line.date}
-                onValueChange={(v) => set("date", v)}
-              />
-            </Field>
-            <Field label="Perticulars" htmlFor={id("particulars")}>
-              <Input
-                id={id("particulars")}
-                placeholder="Lorry no."
-                value={line.particulars}
-                onChange={(e) =>
-                  set("particulars", e.target.value.toUpperCase())
-                }
-              />
-            </Field>
-            <Field label="Rate (₹/ton)" htmlFor={id("rate")}>
-              <NumberInput
-                id={id("rate")}
-                value={line.rate}
-                onValueChange={(v) => price(v, line.weight)}
-              />
-            </Field>
-            <Field label="Weight (ton)" htmlFor={id("weight")}>
-              <NumberInput
-                id={id("weight")}
-                step="0.01"
-                value={line.weight}
-                onValueChange={(v) => price(line.rate, v)}
-              />
-            </Field>
-            <Field label="Amount (₹)" htmlFor={id("amount")}>
-              <NumberInput
-                id={id("amount")}
-                value={line.amount}
-                onValueChange={(v) => set("amount", v)}
-              />
-            </Field>
+            <Controller
+              control={control}
+              name={at("challanNo")}
+              render={({ field }) => (
+                <Field label="Challan No." htmlFor={at("challan")}>
+                  <Input
+                    id={at("challan")}
+                    className="tabular-nums"
+                    placeholder="L.R. no."
+                    value={String(field.value ?? "")}
+                    onBlur={field.onBlur}
+                    onChange={(e) => field.onChange(e.target.value)}
+                  />
+                </Field>
+              )}
+            />
+            <Controller
+              control={control}
+              name={at("date")}
+              render={({ field }) => (
+                <Field label="Date" htmlFor={at("date")}>
+                  <DateField
+                    id={at("date")}
+                    value={String(field.value ?? "")}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+            <Controller
+              control={control}
+              name={at("particulars")}
+              render={({ field }) => (
+                <Field
+                  label="Perticulars"
+                  htmlFor={at("particulars")}
+                  error={errors[`lines.${index}.particulars`]}
+                >
+                  <Input
+                    id={at("particulars")}
+                    placeholder="Lorry no."
+                    value={String(field.value ?? "")}
+                    onBlur={field.onBlur}
+                    onChange={(e) =>
+                      field.onChange(e.target.value.toUpperCase())
+                    }
+                  />
+                </Field>
+              )}
+            />
+            <NumberField
+              label="Rate (₹/ton)"
+              name={at("rate")}
+              control={control}
+              error={errors[`lines.${index}.rate`]}
+              onValueChange={(next) => price(next, Number(weight) || 0)}
+            />
+            <NumberField
+              label="Weight (ton)"
+              name={at("weight")}
+              control={control}
+              step="0.01"
+              error={errors[`lines.${index}.weight`]}
+              onValueChange={(next) => price(Number(rate) || 0, next)}
+            />
+            <NumberField
+              label="Amount (₹)"
+              name={at("amount")}
+              control={control}
+              error={errors[`lines.${index}.amount`]}
+            />
           </>
         ) : (
           <>
-            <Field
-              label="Perticulars"
-              htmlFor={id("particulars")}
-              className="sm:col-span-2"
-            >
-              <Input
-                id={id("particulars")}
-                placeholder="Detention, halting, extra labour…"
-                value={line.particulars}
-                onChange={(e) => set("particulars", e.target.value)}
-              />
-            </Field>
-            <Field label="Amount (₹)" htmlFor={id("amount")}>
-              <NumberInput
-                id={id("amount")}
-                value={line.amount}
-                onValueChange={(v) => set("amount", v)}
-              />
-            </Field>
+            <Controller
+              control={control}
+              name={at("particulars")}
+              render={({ field }) => (
+                <Field
+                  label="Perticulars"
+                  htmlFor={at("particulars")}
+                  error={errors[`lines.${index}.particulars`]}
+                  className="sm:col-span-2"
+                >
+                  <Input
+                    id={at("particulars")}
+                    placeholder="Detention, halting, extra labour…"
+                    value={String(field.value ?? "")}
+                    onBlur={field.onBlur}
+                    onChange={(e) => field.onChange(e.target.value)}
+                  />
+                </Field>
+              )}
+            />
+            <NumberField
+              label="Amount (₹)"
+              name={at("amount")}
+              control={control}
+              error={errors[`lines.${index}.amount`]}
+            />
           </>
         )}
       </div>
@@ -259,95 +386,153 @@ function LineRow({
   )
 }
 
+/** Today, as the clerk would write it. */
+function today(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export function InvoiceFormDialog({
   open,
   onOpenChange,
-  mode,
-  initial,
-  takenBillNos,
+  editing,
+  company,
   onSave,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  mode: "create" | "edit"
-  initial: Invoice
-  /** Bill numbers already in the book, excluding the record being edited. */
-  takenBillNos: string[]
-  onSave: (invoice: Invoice) => void
+  /** The bill being amended, or null when a new one is being raised. */
+  editing: Invoice | null
+  /** Whose book is being written in — it owns the origin station. */
+  company: Company
+  onSave: (input: InvoiceInput) => Promise<void>
 }) {
-  const [draft, setDraft] = React.useState<Invoice>(initial)
-  const [errors, setErrors] = React.useState<Errors>({})
-  const [loaded, setLoaded] = React.useState<Invoice>(initial)
+  const creating = editing === null
 
-  // The caller hands over a fresh object every time the dialog is opened, so a
-  // changed identity means "start again from this record" — discard the draft.
-  if (initial !== loaded) {
-    setLoaded(initial)
-    setDraft(initial)
-    setErrors({})
+  // Only asked while a new bill is being raised; an amendment keeps its own
+  // number.
+  const nextBillNo = useNextBillNo(company.slug, open && creating)
+
+  const blank = React.useCallback(
+    (billNo: string) => emptyInvoiceInput(billNo, today(), company.origin),
+    [company]
+  )
+
+  const form = useForm<InvoiceInput>({
+    resolver: zodResolver(invoiceSchema),
+    defaultValues: editing ? invoiceInputOf(editing) : blank(""),
+    mode: "onTouched",
+  })
+
+  const {
+    control,
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+    reset,
+    setError,
+    setValue,
+  } = form
+
+  const lines = useFieldArray({ control, name: "lines" })
+
+  // Reloads the form whenever the dialog is pointed at a different record —
+  // opened on another bill, or switched from amending to raising. Without this
+  // the dialog reopens on the last bill's figures.
+  const [loaded, setLoaded] = React.useState<Invoice | null>(editing)
+  const [wasOpen, setWasOpen] = React.useState(open)
+  if (open && (editing !== loaded || !wasOpen)) {
+    setLoaded(editing)
+    setWasOpen(true)
+    reset(editing ? invoiceInputOf(editing) : blank(""))
   }
+  if (!open && wasOpen) setWasOpen(false)
 
-  const set = <K extends keyof Invoice>(key: K, value: Invoice[K]) =>
-    setDraft((d) => ({ ...d, [key]: value }))
+  // The number arrives after the dialog has already opened, so it is written in
+  // when it lands rather than waited for — the clerk can be typing the party's
+  // name while the book is still being asked.
+  React.useEffect(() => {
+    if (open && creating && nextBillNo.data) {
+      setValue("billNo", nextBillNo.data)
+    }
+  }, [open, creating, nextBillNo.data, setValue])
 
-  const setParty = (key: keyof Party, value: string) =>
-    setDraft((d) => ({ ...d, party: { ...d.party, [key]: value } }))
+  // Watched rather than read off `getValues`, because the total below has to
+  // move as the amount boxes are typed into.
+  const watchedLines = useWatch({ control, name: "lines" })
+  const status = useWatch({ control, name: "status" })
+  const total = invoiceTotal({ lines: watchedLines ?? [] })
 
-  const setLine = (line: InvoiceLine) =>
-    setDraft((d) => ({
-      ...d,
-      lines: d.lines.map((l) => (l.id === line.id ? line : l)),
-    }))
+  /**
+   * The server's field errors, flattened to the dotted paths the boxes are
+   * named with — `lines.0.particulars`, `paidOn`. react-hook-form keeps its
+   * own errors as a nested object, and the line rows are handed this instead
+   * so a message about line three lands on line three.
+   */
+  const lineErrors = React.useMemo(() => {
+    const flat: Record<string, string> = {}
 
-  const addLine = (kind: LineKind) =>
-    setDraft((d) => ({
-      ...d,
-      lines: [
-        ...d.lines,
-        kind === "Freight"
-          ? { ...emptyLine(kind), date: d.billDate }
-          : emptyLine(kind),
-      ],
-    }))
+    // `errors.lines` carries both a per-row array and its own `message` for an
+    // error about the list itself, so it is only iterable when it is actually
+    // the array half.
+    const rows = errors.lines
+    if (!Array.isArray(rows)) return flat
 
-  const removeLine = (id: string) =>
-    setDraft((d) => ({ ...d, lines: d.lines.filter((l) => l.id !== id) }))
-
-  const total = invoiceTotal(draft)
-
-  function handleSave() {
-    const next: Errors = {}
-    const billNo = draft.billNo.trim()
-    if (!billNo) next.billNo = "Bill number is required"
-    else if (takenBillNos.includes(billNo))
-      next.billNo = `Bill ${billNo} is already in the book`
-    if (!draft.billDate) next.billDate = "Date is required"
-    if (!draft.party.name.trim()) next.partyName = "Party is required"
-    if (!draft.to.trim()) next.to = "Destination is required"
-    if (draft.lines.length === 0) next.lines = "A bill needs at least one line"
-    if (draft.lines.some((l) => !l.particulars.trim()))
-      next.lines = "Every line needs a perticulars entry"
-    if (draft.status === "Paid" && !draft.paidOn)
-      next.paidOn = "Record the date the party settled"
-
-    setErrors(next)
-    if (Object.keys(next).length > 0) return
-
-    onSave({
-      ...draft,
-      billNo,
-      id: draft.id || `invoice-${billNo}`,
-      lines: draft.lines.map((l) => ({ ...l })),
-      paidOn: draft.status === "Paid" ? draft.paidOn : "",
+    rows.forEach((line, index) => {
+      if (!line) return
+      for (const [key, entry] of Object.entries(line)) {
+        const message = (entry as { message?: string } | undefined)?.message
+        if (message) flat[`lines.${index}.${key}`] = message
+      }
     })
+
+    return flat
+  }, [errors.lines])
+
+  function addLine(kind: LineKind) {
+    lines.append(
+      kind === "Freight"
+        ? { ...emptyLine(kind), date: form.getValues("billDate") }
+        : emptyLine(kind)
+    )
   }
+
+  const onSubmit = handleSubmit(async (input) => {
+    try {
+      await onSave(input)
+    } catch (cause) {
+      if (!(cause instanceof ApiError)) {
+        toast.error("Could not save the bill")
+        return
+      }
+
+      // The server addresses fields the way this form does — `party.name`,
+      // `lines.0.rate` — so a rejection lands on the box that caused it.
+      if (cause.fieldErrors) {
+        for (const [path, messages] of Object.entries(cause.fieldErrors)) {
+          if (path === "_form" || !messages[0]) continue
+          setError(path as InvoiceField, {
+            type: "server",
+            message: messages[0],
+          })
+        }
+      }
+
+      // A number taken since the form was opened comes back as a conflict
+      // rather than a field error, and it is about one box.
+      if (cause.status === 409) {
+        setError("billNo", { type: "server", message: cause.message })
+      }
+
+      toast.error(cause.message)
+    }
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "New bill" : `Edit bill ${initial.billNo}`}
+            {creating ? "New bill" : `Edit bill ${editing.billNo}`}
           </DialogTitle>
           <DialogDescription>
             Fields follow the printed bill book. One bill carries one party and
@@ -357,132 +542,153 @@ export function InvoiceFormDialog({
 
         <div className="-mx-4 overflow-y-auto px-4">
           <Section title="Bill">
-            <Field label="Bill No." htmlFor="billNo" error={errors.billNo}>
-              <Input
-                id="billNo"
-                className="tabular-nums"
-                value={draft.billNo}
-                onChange={(e) => set("billNo", e.target.value)}
-              />
-            </Field>
-            <Field label="Date" htmlFor="billDate" error={errors.billDate}>
-              <DateField
-                id="billDate"
-                value={draft.billDate}
-                onValueChange={(v) => set("billDate", v)}
-              />
-            </Field>
-            <Field label="Status" htmlFor="status">
-              <Select
-                value={draft.status}
-                onValueChange={(value) => value && set("status", value)}
-              >
-                <SelectTrigger id="status" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {INVOICE_STATUSES.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field
-              label="Settled on"
-              htmlFor="paidOn"
-              error={errors.paidOn}
-              hint="Only once the party has paid"
-            >
-              <DateField
-                id="paidOn"
-                disabled={draft.status !== "Paid"}
-                value={draft.paidOn}
-                onValueChange={(v) => set("paidOn", v)}
-              />
-            </Field>
+            <TextField
+              label="Bill No."
+              name="billNo"
+              registration={register("billNo")}
+              error={errors.billNo?.message}
+              inputClassName="tabular-nums"
+              hint={
+                creating && nextBillNo.isFetching
+                  ? "Asking the book for the next number…"
+                  : undefined
+              }
+            />
+            <Controller
+              control={control}
+              name="billDate"
+              render={({ field }) => (
+                <Field
+                  label="Date"
+                  htmlFor="billDate"
+                  error={errors.billDate?.message}
+                >
+                  <DateField
+                    id="billDate"
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+            <Controller
+              control={control}
+              name="status"
+              render={({ field }) => (
+                <Field label="Status" htmlFor="status">
+                  <Select
+                    items={INVOICE_STATUSES.map((s) => ({
+                      value: s,
+                      label: s,
+                    }))}
+                    value={field.value}
+                    onValueChange={(value) => value && field.onChange(value)}
+                  >
+                    <SelectTrigger id="status" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INVOICE_STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+            />
+            <Controller
+              control={control}
+              name="paidOn"
+              render={({ field }) => (
+                <Field
+                  label="Settled on"
+                  htmlFor="paidOn"
+                  error={errors.paidOn?.message}
+                  hint="Only once the party has paid"
+                >
+                  <DateField
+                    id="paidOn"
+                    disabled={status !== "Paid"}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
           </Section>
 
           <Section title="Party">
-            <Field label="M/s" htmlFor="partyName" error={errors.partyName}>
-              <Input
-                id="partyName"
-                value={draft.party.name}
-                onChange={(e) => setParty("name", e.target.value)}
-              />
-            </Field>
-            <Field label="GST No." htmlFor="partyGst">
-              <Input
-                id="partyGst"
-                placeholder="21AAFCI9440L1ZG"
-                value={draft.party.gstNo}
-                onChange={(e) =>
-                  setParty("gstNo", e.target.value.toUpperCase())
-                }
-              />
-            </Field>
-            <Field
+            <TextField
+              label="M/s"
+              name="party.name"
+              registration={register("party.name")}
+              error={errors.party?.name?.message}
+            />
+            <TextField
+              label="GST No."
+              name="party.gstNo"
+              registration={register("party.gstNo")}
+              error={errors.party?.gstNo?.message}
+              placeholder="21AAFCI9440L1ZG"
+              inputClassName="uppercase"
+            />
+            <TextField
               label="Address"
-              htmlFor="partyAddress"
+              name="party.address"
+              registration={register("party.address")}
+              error={errors.party?.address?.message}
               className="sm:col-span-2"
-            >
-              <Textarea
-                id="partyAddress"
-                rows={2}
-                value={draft.party.address}
-                onChange={(e) => setParty("address", e.target.value)}
-              />
-            </Field>
+              multiline
+            />
           </Section>
 
           <Section
             title="Route"
             note="Typed, not picked — bills run to stations the office never books from"
           >
-            <Field label="From" htmlFor="from">
-              <Input
-                id="from"
-                value={draft.from}
-                onChange={(e) => set("from", e.target.value)}
-              />
-            </Field>
-            <Field label="To" htmlFor="to" error={errors.to}>
-              <Input
-                id="to"
-                placeholder="Khurdha (Odisha)"
-                value={draft.to}
-                onChange={(e) => set("to", e.target.value)}
-              />
-            </Field>
-            <Field
+            <TextField
+              label="From"
+              name="from"
+              registration={register("from")}
+              error={errors.from?.message}
+            />
+            <TextField
+              label="To"
+              name="to"
+              registration={register("to")}
+              error={errors.to?.message}
+              placeholder="Khurdha (Odisha)"
+            />
+            <TextField
               label="Party's invoice no."
-              htmlFor="partyInvoiceNo"
+              name="partyInvoiceNo"
+              registration={register("partyInvoiceNo")}
+              error={errors.partyInvoiceNo?.message}
+              inputClassName="tabular-nums"
               hint="The goods invoice, printed under the charge lines"
-            >
-              <Input
-                id="partyInvoiceNo"
-                className="tabular-nums"
-                value={draft.partyInvoiceNo}
-                onChange={(e) => set("partyInvoiceNo", e.target.value)}
-              />
-            </Field>
+            />
           </Section>
 
           <Section title="Charge lines" columns={false}>
-            {draft.lines.map((line, index) => (
+            {lines.fields.map((line, index) => (
               <LineRow
                 key={line.id}
-                line={line}
                 index={index}
-                onChange={setLine}
-                onRemove={() => removeLine(line.id)}
-                removable={draft.lines.length > 1}
+                kind={line.kind}
+                control={control}
+                setValue={setValue}
+                errors={lineErrors}
+                onRemove={() => lines.remove(index)}
+                removable={lines.fields.length > 1}
               />
             ))}
 
-            {errors.lines ? (
-              <p className="text-xs text-destructive">{errors.lines}</p>
+            {/* An error about the list itself — none at all, or too many —
+                rather than about a box inside one of its rows. */}
+            {errors.lines?.message ? (
+              <p className="text-xs text-destructive">{errors.lines.message}</p>
             ) : null}
 
             <div className="flex flex-wrap gap-2">
@@ -507,14 +713,13 @@ export function InvoiceFormDialog({
           </Section>
 
           <Section title="Remarks" columns={false}>
-            <Field label="Office note" htmlFor="remarks">
-              <Textarea
-                id="remarks"
-                rows={2}
-                value={draft.remarks}
-                onChange={(e) => set("remarks", e.target.value)}
-              />
-            </Field>
+            <TextField
+              label="Office note"
+              name="remarks"
+              registration={register("remarks")}
+              error={errors.remarks?.message}
+              multiline
+            />
           </Section>
         </div>
 
@@ -526,11 +731,15 @@ export function InvoiceFormDialog({
             </span>
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
-            <Button onClick={handleSave}>
-              {mode === "create" ? "Save bill" : "Save changes"}
+            <Button disabled={isSubmitting} onClick={() => void onSubmit()}>
+              {creating ? "Save bill" : "Save changes"}
             </Button>
           </div>
         </DialogFooter>
