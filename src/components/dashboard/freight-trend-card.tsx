@@ -39,11 +39,15 @@ export function FreightTrendCard({
   changePct,
 }: {
   data: MonthPoint[]
-  changePct: number
+  /**
+   * Null where the change cannot be stated — a rise from a month with no
+   * bookings is not a percentage. See `monthOverMonth`.
+   */
+  changePct: number | null
 }) {
   const first = data[0]
   const last = data[data.length - 1]
-  const rising = changePct >= 0
+  const rising = changePct !== null && changePct >= 0
   const Trend = rising ? TrendingUpIcon : TrendingDownIcon
 
   // h-full down the whole chain, so the card fills its grid track and the plot
@@ -151,14 +155,25 @@ export function FreightTrendCard({
             </TabsContent>
           </div>
 
+          {/* A month with nothing booked before it has no percentage to
+              report — "∞%" over a quiet month reads worse than saying so. */}
           <p className="mt-3 flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <Trend className="size-3.5" aria-hidden />
-            <span>
-              <span className="font-medium text-foreground">
-                {formatPercent(changePct)}
-              </span>{" "}
-              in {last.fullLabel} against the month before
-            </span>
+            {changePct === null ? (
+              <span>
+                Nothing booked in the month before {last.fullLabel} to compare
+                against
+              </span>
+            ) : (
+              <>
+                <Trend className="size-3.5" aria-hidden />
+                <span>
+                  <span className="font-medium text-foreground">
+                    {formatPercent(changePct)}
+                  </span>{" "}
+                  in {last.fullLabel} against the month before
+                </span>
+              </>
+            )}
           </p>
         </CardContent>
       </Tabs>
