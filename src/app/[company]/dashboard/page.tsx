@@ -1,29 +1,17 @@
 import type { Metadata } from "next"
-import {
-  BanknoteIcon,
-  ScrollTextIcon,
-  TruckIcon,
-  WalletIcon,
-} from "lucide-react"
+import { HydrationBoundary, dehydrate } from "@tanstack/react-query"
 
-import { FreightTrendCard } from "@/components/dashboard/freight-trend-card"
-import { PaymentSplitCard } from "@/components/dashboard/payment-split-card"
-import { RecentBiltiesCard } from "@/components/dashboard/recent-bilties-card"
-import { StatTile } from "@/components/dashboard/stat-tile"
-import { TopRoutesCard } from "@/components/dashboard/top-routes-card"
+import { DashboardView } from "@/components/dashboard/dashboard-view"
 import {
-  getKpis,
-  getMonthOverMonth,
-  getMonthlyFreight,
-  getPaymentSplit,
-  getRecentBilties,
-  getTopRoutes,
-  WINDOW_DAYS,
-  WINDOW_START,
-} from "@/lib/analytics"
+  dashboardKeys,
+  fetchDashboard,
+  searchParamsToQuery,
+} from "@/lib/api/dashboard"
+import { withAuth } from "@/lib/api/server"
 import { companyFromParams, type CompanyParams } from "@/lib/company-route"
-import { TODAY } from "@/lib/data"
-import { formatDate, formatINR, formatNumber } from "@/lib/format"
+import { getQueryClient } from "@/lib/query-client"
+
+type SearchParams = Promise<Record<string, string | string[] | undefined>>
 
 export async function generateMetadata({
   params,
@@ -34,75 +22,47 @@ export async function generateMetadata({
   return { title: `Dashboard — ${company.name}` }
 }
 
+/**
+ * One firm's dashboard, read on the server and handed over already counted.
+ *
+ * The window is read off the URL here, not out of the screen's memory, so the
+ * page the browser is sent covers the period that was asked for — a link to
+ * the last quarter opens on the last quarter rather than on the last month and
+ * then redrawing.
+ *
+ * The same query is dehydrated into the cache the view reads from, so its
+ * first render is not a request. It stays a client component from there for
+ * two reasons: the charts are, and a dashboard left open should catch up when
+ * the clerk looks back at the tab.
+ */
 export default async function DashboardPage({
   params,
+  searchParams,
 }: {
   params: CompanyParams
+  searchParams: SearchParams
 }) {
-  const { slug } = await companyFromParams(params)
+  const company = await companyFromParams(params)
+  const query = searchParamsToQuery(await searchParams)
 
-  const kpis = getKpis(slug)
-  const monthly = getMonthlyFreight(slug)
-  const { changePct } = getMonthOverMonth(slug)
+  const queryClient = getQueryClient()
+  const auth = await withAuth()
 
+  await queryClient
+    .prefetchQuery({
+      queryKey: dashboardKeys.summary(company.slug, query),
+      queryFn: () => fetchDashboard(company.slug, query, auth),
+    })
+    // A book that cannot be reached is not a broken page — the shell and the
+    // window selector are still worth rendering, and the client says so on the
+    // screen and keeps trying.
+    .catch(() => undefined)
+
+  // Keyed on the firm so switching books remounts the screen rather than
+  // showing one firm's figures under the other's letterhead for a frame.
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
-      <header className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Booking and collection at a glance
-          </p>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Last {WINDOW_DAYS} days · {formatDate(WINDOW_START)} –{" "}
-          {formatDate(TODAY)}
-        </p>
-      </header>
-
-      {/* min-w-0 on every grid child: without it a track refuses to shrink
-          below its content, so a wide table or chart widens the whole page
-          instead of scrolling or reflowing inside its own card. */}
-      <section className="grid gap-4 *:min-w-0 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile
-          label="Bilties booked"
-          value={formatNumber(kpis.biltiesBooked)}
-          icon={ScrollTextIcon}
-          sub={`${kpis.lrRange} · ${kpis.cancelled} cancelled`}
-        />
-        <StatTile
-          label="Freight booked"
-          value={formatINR(kpis.freightBooked)}
-          icon={BanknoteIcon}
-          sub="Freight, hamali, A.O.C. and station charges"
-        />
-        <StatTile
-          label="Still to collect"
-          value={formatINR(kpis.receivable)}
-          icon={WalletIcon}
-          sub={`${kpis.receivableCount} LRs on To Pay or TBB terms`}
-        />
-        <StatTile
-          label="On the road"
-          value={formatNumber(kpis.inTransit)}
-          icon={TruckIcon}
-          sub={`${kpis.delivered} delivered · ${kpis.awaitingDispatch} awaiting dispatch`}
-        />
-      </section>
-
-      <section className="grid gap-4 *:min-w-0 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <FreightTrendCard data={monthly} changePct={changePct} />
-        </div>
-        <PaymentSplitCard slices={getPaymentSplit(slug)} />
-      </section>
-
-      <section className="grid gap-4 *:min-w-0 lg:grid-cols-3">
-        <TopRoutesCard routes={getTopRoutes(slug)} />
-        <div className="lg:col-span-2">
-          <RecentBiltiesCard company={slug} bilties={getRecentBilties(slug)} />
-        </div>
-      </section>
-    </div>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <DashboardView key={company.slug} query={query} />
+    </HydrationBoundary>
   )
 }

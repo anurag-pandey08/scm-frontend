@@ -1,109 +1,29 @@
-import type { CompanySlug } from "./companies"
-import {
-  getMonthlyFreight as monthlyFreightFor,
-  getSeedBilties,
-  TODAY,
-} from "./data"
-import { grossTotal, balanceDue, type Bilty, type PaymentType } from "./types"
+import type { DashboardDto, Kpis } from "./schemas/dashboard"
+import type { PaymentType } from "./types"
 
 /**
- * Every figure on the dashboard is scoped to one firm. Nothing here reaches for
- * a register directly — the company is always named by the caller, so the two
- * firms' books can never be added together by accident.
+ * The dashboard's figures, dressed for the page.
+ *
+ * This file used to *compute* the dashboard, out of the seed register held in
+ * memory. It no longer does: Postgres counts, sums and buckets, and what
+ * arrives is already the answer. What is left here is the half the API
+ * deliberately does not do — turning figures into the words a reader sees.
+ *
+ * That split is the API's own, and it is the right way round. "2026-08" is a
+ * fact; "Aug 2026" is a rendering of it, in a locale the server has no
+ * business guessing. Same for the L.R. range and the month-over-month change:
+ * both are read off figures the API already sent, so sending them again as
+ * prose would be a second copy of the same truth.
  */
 
-/** Inclusive window of the `days` days ending on the anchor date. */
-function windowStart(days: number): string {
-  const end = new Date(`${TODAY}T00:00:00`)
-  end.setDate(end.getDate() - (days - 1))
-  return end.toISOString().slice(0, 10)
-}
-
-export const WINDOW_DAYS = 30
-export const WINDOW_START = windowStart(WINDOW_DAYS)
-
-const inWindow = (b: Bilty) => b.lrDate >= WINDOW_START && b.lrDate <= TODAY
-const isLive = (b: Bilty) => b.status !== "Cancelled"
-
-/** The firm's bilties inside the window, and those of them still standing. */
-function books(company: CompanySlug) {
-  const recent = getSeedBilties(company).filter(inWindow)
-  return { recent, live: recent.filter(isLive) }
-}
-
-export interface Kpis {
-  biltiesBooked: number
-  cancelled: number
-  lrRange: string
-  freightBooked: number
-  receivable: number
-  receivableCount: number
-  inTransit: number
-  delivered: number
-  awaitingDispatch: number
-}
-
-export function getKpis(company: CompanySlug): Kpis {
-  const { recent, live } = books(company)
-  const lrNumbers = recent.map((b) => Number(b.lrNo)).sort((a, b) => a - b)
-  const receivables = live.filter(
-    (b) => b.paymentType === "To Pay" || b.paymentType === "TBB"
-  )
-
-  return {
-    biltiesBooked: live.length,
-    cancelled: recent.length - live.length,
-    lrRange:
-      lrNumbers.length > 0
-        ? `LR ${lrNumbers[0]}–${lrNumbers[lrNumbers.length - 1]}`
-        : "—",
-    freightBooked: live.reduce((sum, b) => sum + grossTotal(b.charges), 0),
-    receivable: receivables.reduce((sum, b) => sum + balanceDue(b.charges), 0),
-    receivableCount: receivables.length,
-    inTransit: live.filter((b) => b.status === "In Transit").length,
-    delivered: live.filter((b) => b.status === "Delivered").length,
-    awaitingDispatch: live.filter((b) => b.status === "Booked").length,
-  }
-}
-
 export interface MonthPoint {
+  /** yyyy-mm */
   month: string
   /** Axis tick — "Jul" */
   label: string
   /** Tooltip and table row — "Jul 2026" */
   fullLabel: string
   freight: number
-}
-
-export function getMonthlyFreight(company: CompanySlug): MonthPoint[] {
-  return monthlyFreightFor(company).map(({ month, freight }) => {
-    const d = new Date(`${month}-01T00:00:00`)
-    return {
-      month,
-      // Trimmed to three letters — ICU renders September as "Sept", which
-      // leaves one ragged tick among eleven three-letter ones.
-      label: d.toLocaleDateString("en-IN", { month: "short" }).slice(0, 3),
-      fullLabel: d.toLocaleDateString("en-IN", {
-        month: "short",
-        year: "numeric",
-      }),
-      freight,
-    }
-  })
-}
-
-/** Change in the most recent complete month against the one before it. */
-export function getMonthOverMonth(company: CompanySlug): {
-  latest: MonthPoint
-  changePct: number
-} {
-  const points = getMonthlyFreight(company)
-  const latest = points[points.length - 1]
-  const previous = points[points.length - 2]
-  return {
-    latest,
-    changePct: ((latest.freight - previous.freight) / previous.freight) * 100,
-  }
 }
 
 export interface PaymentSlice {
@@ -113,23 +33,6 @@ export interface PaymentSlice {
   share: number
 }
 
-export function getPaymentSplit(company: CompanySlug): PaymentSlice[] {
-  const { live } = books(company)
-  const total = live.reduce((sum, b) => sum + grossTotal(b.charges), 0)
-  const order: PaymentType[] = ["Paid", "To Pay", "TBB"]
-
-  return order.map((type) => {
-    const rows = live.filter((b) => b.paymentType === type)
-    const freight = rows.reduce((sum, b) => sum + grossTotal(b.charges), 0)
-    return {
-      type,
-      count: rows.length,
-      freight,
-      share: total > 0 ? (freight / total) * 100 : 0,
-    }
-  })
-}
-
 export interface RoutePoint {
   route: string
   destination: string
@@ -137,29 +40,70 @@ export interface RoutePoint {
   freight: number
 }
 
-export function getTopRoutes(company: CompanySlug, limit = 6): RoutePoint[] {
-  const byDestination = new Map<string, RoutePoint>()
-
-  for (const b of books(company).live) {
-    const existing = byDestination.get(b.to)
-    if (existing) {
-      existing.trips += 1
-      existing.freight += grossTotal(b.charges)
-    } else {
-      byDestination.set(b.to, {
-        route: `${b.from} → ${b.to}`,
-        destination: b.to,
-        trips: 1,
-        freight: grossTotal(b.charges),
-      })
-    }
-  }
-
-  return [...byDestination.values()]
-    .sort((a, b) => b.freight - a.freight)
-    .slice(0, limit)
+/** The tiles' figures, plus the one sentence the screen writes from them. */
+export interface DashboardKpis extends Kpis {
+  /** "LR 3010–3038", or "—" over a window nothing was booked in. */
+  lrRange: string
 }
 
-export function getRecentBilties(company: CompanySlug, limit = 6): Bilty[] {
-  return getSeedBilties(company).slice(0, limit)
+/**
+ * A yyyy-mm as the two labels the chart needs.
+ *
+ * Parsed as UTC midday rather than midnight: a month key turned into a local
+ * `Date` west of Greenwich lands on the last day of the month before, and the
+ * axis then reads a month behind the figures.
+ */
+function monthLabels(month: string): { label: string; fullLabel: string } {
+  const date = new Date(`${month}-01T12:00:00Z`)
+
+  return {
+    // Trimmed to three letters — ICU renders September as "Sept", which
+    // leaves one ragged tick among eleven three-letter ones.
+    label: date
+      .toLocaleDateString("en-IN", { month: "short", timeZone: "UTC" })
+      .slice(0, 3),
+    fullLabel: date.toLocaleDateString("en-IN", {
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+  }
+}
+
+export function toMonthPoints(monthly: DashboardDto["monthly"]): MonthPoint[] {
+  return monthly.map(({ month, freight }) => ({
+    month,
+    freight,
+    ...monthLabels(month),
+  }))
+}
+
+/**
+ * The tiles, with the L.R. range written out.
+ *
+ * The API sends the two ends and leaves the dash to the screen, because a
+ * range is a sentence and the ends are facts — and because an empty window has
+ * no range to print, only a placeholder.
+ */
+export function toKpis(kpis: Kpis): DashboardKpis {
+  return {
+    ...kpis,
+    lrRange: kpis.lrFrom ? `LR ${kpis.lrFrom}–${kpis.lrTo}` : "—",
+  }
+}
+
+/**
+ * Change in the last month of the trend against the one before it.
+ *
+ * Null rather than a number where it cannot be stated: a rise from nothing is
+ * not a percentage, and a chart that prints "∞%" or "NaN%" over a quiet month
+ * is worse than one that prints nothing. The card reads the null and says so.
+ */
+export function monthOverMonth(points: MonthPoint[]): number | null {
+  const latest = points.at(-1)
+  const previous = points.at(-2)
+
+  if (!latest || !previous || previous.freight === 0) return null
+
+  return ((latest.freight - previous.freight) / previous.freight) * 100
 }
