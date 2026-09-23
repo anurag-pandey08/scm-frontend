@@ -17,6 +17,7 @@ import { toast } from "sonner"
 
 import { useNextBillNo } from "@/components/invoice/use-invoices"
 import { DateField } from "@/components/date-field"
+import { StationField } from "@/components/station-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -386,6 +387,47 @@ function LineRow({
   )
 }
 
+/**
+ * A station — one of the office's own routes, anywhere else in India, or
+ * somewhere too small to be on any list. Suggests without confining: a bill
+ * runs to stations the office never books from, and this box still takes them.
+ */
+function StationBox({
+  label,
+  name,
+  control,
+  error,
+  hint,
+  placeholder,
+}: {
+  label: string
+  name: InvoiceField
+  control: Control<InvoiceInput>
+  error?: string
+  hint?: string
+  placeholder?: string
+}) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <Field label={label} htmlFor={name} error={error} hint={hint}>
+          <StationField
+            id={name}
+            value={typeof field.value === "string" ? field.value : ""}
+            onValueChange={field.onChange}
+            onBlur={field.onBlur}
+            placeholder={placeholder}
+            maxLength={120}
+            aria-invalid={Boolean(error)}
+          />
+        </Field>
+      )}
+    />
+  )
+}
+
 /** Today, as the clerk would write it. */
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -646,20 +688,20 @@ export function InvoiceFormDialog({
 
           <Section
             title="Route"
-            note="Typed, not picked — bills run to stations the office never books from"
+            note="Suggested, not confined — bills run to stations the office never books from"
           >
-            <TextField
+            <StationBox
               label="From"
               name="from"
-              registration={register("from")}
+              control={control}
               error={errors.from?.message}
             />
-            <TextField
+            <StationBox
               label="To"
               name="to"
-              registration={register("to")}
+              control={control}
               error={errors.to?.message}
-              placeholder="Khurdha (Odisha)"
+              placeholder="Khurdha"
             />
             <TextField
               label="Party's invoice no."

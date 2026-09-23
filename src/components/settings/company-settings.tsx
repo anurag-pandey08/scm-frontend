@@ -20,6 +20,7 @@ import {
 } from "@/components/company-provider"
 import { Monogram } from "@/components/company-switcher"
 import { Field, ListField } from "@/components/settings/letterhead-fields"
+import { StationField } from "@/components/station-field"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,16 +40,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api/client"
-import { STATIONS } from "@/lib/companies"
 import {
   letterheadOf,
   letterheadSchema,
@@ -404,23 +397,13 @@ export function CompanySettings() {
               error={fieldState.error?.message}
               hint="Fills the From box on a new L.R. and slip"
             >
-              <Select
+              <StationField
+                id="origin"
                 value={field.value}
-                // A Select that has been dismissed rather than chosen from
-                // reports no value; the station it already had stands.
-                onValueChange={(value) => value && field.onChange(value)}
-              >
-                <SelectTrigger id="origin" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATIONS.map((station) => (
-                    <SelectItem key={station} value={station}>
-                      {station}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onValueChange={field.onChange}
+                onBlur={field.onBlur}
+                aria-invalid={Boolean(fieldState.error)}
+              />
             </Field>
           )}
         />

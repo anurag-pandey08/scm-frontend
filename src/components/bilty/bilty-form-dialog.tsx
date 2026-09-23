@@ -14,6 +14,7 @@ import { toast } from "sonner"
 
 import { useNextLrNo } from "@/components/bilty/use-bilties"
 import { DateField } from "@/components/date-field"
+import { StationField } from "@/components/station-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -34,7 +35,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api/client"
-import { STATIONS, type Company } from "@/lib/companies"
+import { type Company } from "@/lib/companies"
 import { formatINR } from "@/lib/format"
 import { biltyInputOf, biltySchema, type BiltyInput } from "@/lib/schemas/bilty"
 import {
@@ -274,6 +275,54 @@ function SelectField({
 }
 
 /**
+ * A station — one of the office's own routes, anywhere else in India, or
+ * somewhere too small to be on any list. Unlike the Select above, what is
+ * typed is what is kept; see `station-field.tsx`.
+ */
+function StationBox({
+  label,
+  name,
+  control,
+  error,
+  hint,
+  placeholder,
+  className,
+}: {
+  label: string
+  name: BiltyField
+  control: Control<BiltyInput>
+  error?: string
+  hint?: string
+  placeholder?: string
+  className?: string
+}) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <Field
+          label={label}
+          htmlFor={name}
+          error={error}
+          hint={hint}
+          className={className}
+        >
+          <StationField
+            id={name}
+            value={typeof field.value === "string" ? field.value : ""}
+            onValueChange={field.onChange}
+            onBlur={field.onBlur}
+            placeholder={placeholder}
+            aria-invalid={Boolean(error)}
+          />
+        </Field>
+      )}
+    />
+  )
+}
+
+/**
  * The L.R. as a form — every box on the printed book, in the order it is
  * printed in.
  *
@@ -456,19 +505,17 @@ export function BiltyFormDialog({
               error={errors.bookingOffice?.message}
               placeholder="Select office"
             />
-            <SelectField
+            <StationBox
               label="From"
               name="from"
               control={control}
-              options={STATIONS}
               error={errors.from?.message}
               placeholder="Origin"
             />
-            <SelectField
+            <StationBox
               label="To"
               name="to"
               control={control}
-              options={STATIONS}
               error={errors.to?.message}
               placeholder="Destination"
             />
