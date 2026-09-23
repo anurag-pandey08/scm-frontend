@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner"
 
 import { DateField } from "@/components/date-field"
+import { StationField } from "@/components/station-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -196,6 +197,47 @@ function NumberField({
           </Field>
         )
       }}
+    />
+  )
+}
+
+/**
+ * A station — one of the office's own routes, anywhere else in India, or
+ * somewhere too small to be on any list. Suggests without confining: a lorry
+ * is placed wherever the order sends it, and this box still takes that.
+ */
+function StationBox({
+  label,
+  name,
+  control,
+  error,
+  hint,
+  placeholder,
+}: {
+  label: string
+  name: TripField
+  control: Control<TripInput>
+  error?: string
+  hint?: string
+  placeholder?: string
+}) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <Field label={label} htmlFor={name} error={error} hint={hint}>
+          <StationField
+            id={name}
+            value={typeof field.value === "string" ? field.value : ""}
+            onValueChange={field.onChange}
+            onBlur={field.onBlur}
+            placeholder={placeholder}
+            maxLength={120}
+            aria-invalid={Boolean(error)}
+          />
+        </Field>
+      )}
     />
   )
 }
@@ -397,16 +439,16 @@ export function TripFormDialog({
               registration={register("goods")}
               error={errors.goods?.message}
             />
-            <TextField
+            <StationBox
               label="From"
               name="from"
-              registration={register("from")}
+              control={control}
               error={errors.from?.message}
             />
-            <TextField
+            <StationBox
               label="To"
               name="to"
-              registration={register("to")}
+              control={control}
               error={errors.to?.message}
             />
           </Section>
