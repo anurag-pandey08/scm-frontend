@@ -23,6 +23,12 @@ import {
 } from "@/components/loading-slip/use-loading-slips"
 import { useCompany } from "@/components/company-provider"
 import {
+  SelectAllBox,
+  SelectionBar,
+  SelectRowBox,
+  useRowSelection,
+} from "@/components/register-selection"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -78,9 +84,14 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
     company.slug,
     query
   )
-  const { create, update, remove } = useLoadingSlipMutations(company.slug)
+  const { create, update, remove, removeMany } = useLoadingSlipMutations(
+    company.slug
+  )
 
   const { slips, meta } = data ?? EMPTY_PAGE
+
+  // The ticked rows, scoped to the page on screen — see `useRowSelection`.
+  const selection = useRowSelection(slips)
 
   const [form, setForm] = React.useState<{
     open: boolean
@@ -93,6 +104,7 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
   const [pendingDelete, setPendingDelete] = React.useState<LoadingSlip | null>(
     null
   )
+  const [bulkOpen, setBulkOpen] = React.useState(false)
 
   // Filtering and paging are navigations before they are queries — the URL is
   // rewritten and the page re-fetched on the server — so the book has to hear
@@ -101,7 +113,7 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
   const [pagePending, setPagePending] = React.useState(false)
 
   const saving = create.isPending || update.isPending
-  const deleting = remove.isPending
+  const deleting = remove.isPending || removeMany.isPending
 
   // One loader for everything that leaves the rows on screen out of date: a
   // search, a filter, a page turn, a save, a deletion, and the refetch each
@@ -109,9 +121,11 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
   const busy = isFetching || filtersPending || pagePending || saving || deleting
   const busyLabel = saving
     ? "Saving slip…"
-    : deleting
-      ? "Deleting slip…"
-      : "Fetching slips…"
+    : removeMany.isPending
+      ? "Deleting slips…"
+      : remove.isPending
+        ? "Deleting slip…"
+        : "Fetching slips…"
 
   const filtersApplied = query.q !== "" || query.status !== "all"
 
@@ -151,6 +165,38 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
     }
   }
 
+  async function handleBulkDelete() {
+    const ids = selection.selected
+    if (ids.length === 0) return
+
+    setBulkOpen(false)
+
+    try {
+      const { deleted, requested } = await removeMany.mutateAsync(ids)
+
+      // The refetch this kicks off changes the rows, which clears the ticks on
+      // its own — but that lands a moment later, and a bar still counting rows
+      // that have gone reads like the deletion did not take.
+      selection.clear()
+
+      // Two figures came back, and they can differ: a slip deleted at the next
+      // desk between the tick and the confirmation is one this request asked
+      // for and did not remove. Saying so is better than reporting a number
+      // the book did not act on.
+      toast.success(
+        deleted === requested
+          ? `${deleted} ${deleted === 1 ? "slip" : "slips"} deleted`
+          : `${deleted} of ${requested} deleted — the rest had already gone`
+      )
+    } catch (cause) {
+      toast.error(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not delete the selected slips"
+      )
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -171,6 +217,16 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
 
       <LoadingSlipFilters query={query} onPendingChange={setFiltersPending} />
 
+      <SelectionBar
+        count={selection.count}
+        noun="slip"
+        plural="slips"
+        action="Delete selected"
+        pending={removeMany.isPending}
+        onClear={selection.clear}
+        onDelete={() => setBulkOpen(true)}
+      />
+
       {/* Covered rather than emptied while the next page is fetched — the rows
           on screen are still the right answer to the previous question, and
           blanking them makes every filter change look like a reload.
@@ -183,6 +239,13 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
           <Table aria-busy={busy}>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <SelectAllBox
+                    selection={selection}
+                    label="Select every slip on this page"
+                    disabled={slips.length === 0}
+                  />
+                </TableHead>
                 <TableHead>No.</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>To M/s.</TableHead>
@@ -198,7 +261,7 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
             <TableBody>
               {slips.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={9} className="h-28 text-center">
+                  <TableCell colSpan={10} className="h-28 text-center">
                     <p className="text-sm font-medium">
                       {isError
                         ? "Could not read the slip book"
@@ -217,7 +280,19 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
                 </TableRow>
               ) : (
                 slips.map((slip) => (
-                  <TableRow key={slip.id}>
+                  <TableRow
+                    key={slip.id}
+                    data-state={
+                      selection.isSelected(slip.id) ? "selected" : undefined
+                    }
+                  >
+                    <TableCell>
+                      <SelectRowBox
+                        selection={selection}
+                        id={slip.id}
+                        label={`Select slip ${slip.slipNo}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium tabular-nums">
                       {slip.slipNo}
                     </TableCell>
@@ -290,7 +365,7 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
                   {/* The totals are of everything the filters match, not of the
                       rows on this page — a clerk filtering to one party's slips
                       wants what is owed on all of them. */}
-                  <TableCell colSpan={6}>
+                  <TableCell colSpan={7}>
                     {formatNumber(meta.total)} of {formatNumber(meta.bookTotal)}{" "}
                     slips · advanced{" "}
                     <span className="tabular-nums">
@@ -346,6 +421,42 @@ export function LoadingSlipRegister({ query }: { query: SlipBookQuery }) {
         onOpenChange={setViewOpen}
         onEdit={(slip) => setForm({ open: true, editing: slip })}
       />
+
+      {/* Its own dialog rather than the one below dressed up: the wording is
+          about a set of rows the clerk cannot re-read at this point, so it
+          names the count and says what it takes with it. */}
+      <AlertDialog
+        open={bulkOpen}
+        onOpenChange={(open) => {
+          if (!open) setBulkOpen(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selection.count}{" "}
+              {selection.count === 1 ? "slip" : "slips"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes{" "}
+              {selection.count === 1 ? "the ticked slip" : "every ticked slip"}{" "}
+              from the book, for every desk, and it cannot be undone. If a slip
+              already went out with a driver and the trip then fell through,
+              mark it Cancelled instead so the numbering stays unbroken.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep them</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={removeMany.isPending}
+              onClick={() => void handleBulkDelete()}
+            >
+              Delete {selection.count === 1 ? "slip" : "slips"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pendingDelete !== null}

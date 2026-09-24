@@ -4,6 +4,10 @@ import { apiFetch, type RequestOptions } from "@/lib/api/client"
 import type { CompanySlug } from "@/lib/companies"
 import type { LoadingSlip } from "@/lib/loading-slip-types"
 import {
+  bulkDeleteResultSchema,
+  type BulkDeleteResult,
+} from "@/lib/schemas/bulk-delete"
+import {
   loadingSlipDtoSchema,
   loadingSlipPageSchema,
   type LoadingSlipInput,
@@ -146,6 +150,27 @@ export async function updateLoadingSlip(
     { method: "PATCH", body: input }
   )
   return loadingSlipDtoSchema.parse(data.slip)
+}
+
+/**
+ * The slips the clerk ticked, in one request.
+ *
+ * A POST with the list in the body rather than a DELETE carrying one, for the
+ * reason given on the register's own bulk delete: a DELETE body is allowed by
+ * the spec and dropped by plenty of things in front of an API.
+ *
+ * What comes back is how many rows actually went, which can be short of the
+ * list — see `bulkDeleteResultSchema`.
+ */
+export async function deleteLoadingSlips(
+  company: CompanySlug,
+  ids: string[]
+): Promise<BulkDeleteResult> {
+  const data = await apiFetch<unknown>(`${bookPath(company)}/bulk-delete`, {
+    method: "POST",
+    body: { ids },
+  })
+  return bulkDeleteResultSchema.parse(data)
 }
 
 export async function deleteLoadingSlip(

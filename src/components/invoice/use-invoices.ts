@@ -10,6 +10,7 @@ import {
 import {
   createInvoice,
   deleteInvoice,
+  deleteInvoices,
   fetchInvoices,
   fetchNextBillNo,
   invoiceKeys,
@@ -62,7 +63,7 @@ export function useNextBillNo(company: CompanySlug, enabled: boolean) {
 /**
  * Raising, amending and striking out.
  *
- * All three invalidate the whole book rather than patching the page in place.
+ * All four invalidate the whole book rather than patching the page in place.
  * The book is sorted, filtered, paginated and totalled by Postgres, so a saved
  * bill can land on another page, drop out of the current filter, or change a
  * footer total — none of which the client can work out for itself without
@@ -90,7 +91,15 @@ export function useInvoiceMutations(company: CompanySlug) {
     onSuccess: refreshBook,
   })
 
-  return { create, update, remove }
+  // The ticked rows, in one request rather than one request each. A loop would
+  // leave the book half struck out if the fourth call failed, and would make
+  // the register refetch once per row.
+  const removeMany = useMutation({
+    mutationFn: (ids: string[]) => deleteInvoices(company, ids),
+    onSuccess: refreshBook,
+  })
+
+  return { create, update, remove, removeMany }
 }
 
 /** An empty page, for rendering the book before the first answer lands. */

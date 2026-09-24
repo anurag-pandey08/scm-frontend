@@ -10,6 +10,7 @@ import {
 import {
   biltyKeys,
   createBilty,
+  deleteBilties,
   deleteBilty,
   fetchBilties,
   fetchNextLrNo,
@@ -64,7 +65,7 @@ export function useNextLrNo(company: CompanySlug, enabled: boolean) {
 /**
  * Booking, amending and striking out.
  *
- * All three invalidate the whole book rather than patching the page in place.
+ * All four invalidate the whole book rather than patching the page in place.
  * The register is sorted, filtered, paginated and totalled by Postgres, so a
  * saved bilty can land on another page, drop out of the current filter, or
  * change a footer total — none of which the client can work out for itself
@@ -92,7 +93,15 @@ export function useBiltyMutations(company: CompanySlug) {
     onSuccess: refreshBook,
   })
 
-  return { create, update, remove }
+  // The ticked rows, in one request rather than one request each. A loop would
+  // leave the book half struck out if the fourth call failed, and would make
+  // the register refetch once per row.
+  const removeMany = useMutation({
+    mutationFn: (ids: string[]) => deleteBilties(company, ids),
+    onSuccess: refreshBook,
+  })
+
+  return { create, update, remove, removeMany }
 }
 
 /** An empty page, for rendering the register before the first answer lands. */
