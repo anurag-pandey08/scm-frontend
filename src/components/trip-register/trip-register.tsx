@@ -10,6 +10,13 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  SelectAllBox,
+  SelectionBar,
+  SelectRowBox,
+  useRowSelection,
+  type RowSelection,
+} from "@/components/register-selection"
 import { TripFilters } from "@/components/trip-register/trip-filters"
 import { TripFormDialog } from "@/components/trip-register/trip-form-dialog"
 import { TripPagination } from "@/components/trip-register/trip-pagination"
@@ -203,10 +210,12 @@ function CardField({
  */
 function TripCard({
   trip,
+  selection,
   onEdit,
   onDelete,
 }: {
   trip: Trip
+  selection: RowSelection
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -214,8 +223,22 @@ function TripCard({
   const dueToLorry = trip.paidDate ? 0 : trip.balance
 
   return (
-    <Card size="sm" className="gap-2.5">
+    <Card
+      size="sm"
+      className={cn(
+        "gap-2.5",
+        // The spread marks a ticked row by tinting it; a card has no row to
+        // tint, so it takes a ring instead.
+        selection.isSelected(trip.id) && "ring-1 ring-foreground/25"
+      )}
+    >
       <div className="flex items-start gap-2 px-3">
+        <SelectRowBox
+          selection={selection}
+          id={trip.id}
+          label={`Select the ${trip.truckNo} trip`}
+          className="mt-0.5"
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium">{trip.truckNo}</p>
           <p className="truncate text-xs text-muted-foreground">
@@ -291,9 +314,12 @@ function TripCard({
  */
 export function TripRegister({ query }: { query: RegisterQuery }) {
   const { data, isFetching, isError, error } = useTripPage(query)
-  const { create, update, remove } = useTripMutations()
+  const { create, update, remove, removeMany } = useTripMutations()
 
   const { trips, meta } = data ?? EMPTY_PAGE
+
+  // The ticked rows, scoped to the page on screen — see `useRowSelection`.
+  const selection = useRowSelection(trips)
 
   const [form, setForm] = React.useState<{
     open: boolean
@@ -302,6 +328,7 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
   }>({ open: false, editing: null })
 
   const [pendingDelete, setPendingDelete] = React.useState<Trip | null>(null)
+  const [bulkOpen, setBulkOpen] = React.useState(false)
 
   // Filtering and paging are navigations before they are queries — the URL is
   // rewritten and the page re-fetched on the server — so the ledger has to
@@ -310,7 +337,7 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
   const [pagePending, setPagePending] = React.useState(false)
 
   const saving = create.isPending || update.isPending
-  const deleting = remove.isPending
+  const deleting = remove.isPending || removeMany.isPending
 
   // One loader for everything that leaves the rows on screen out of date: a
   // search, a filter, a page turn, a save, a deletion, and the refetch each
@@ -323,18 +350,56 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
       : "Fetching trips…"
 
   /**
-   * The first column's measured width, so the second can be pinned flush
-   * against it. Measured rather than assumed because the date column's content
-   * sets it, and a hard-coded offset would leave a seam or an overlap.
+   * The widths of the pinned columns to the left of each other, so each can be
+   * pinned flush against the one before it. Measured rather than assumed
+   * because the tick box and the date column both size themselves off their
+   * content, and a hard-coded offset would leave a seam or an overlap.
+   *
+   * Watched rather than read once. Below `md` the spread is `display: none`
+   * and the cards are showing in its place, so a cell measured on mount at
+   * phone width measures zero — and every column to the right of it is then
+   * pinned on top of the one before it for as long as the page is open. The
+   * zero is ignored and the last real figures kept, and the observer takes
+   * the true ones the moment the spread is laid out.
    */
+  const [tickWidth, setTickWidth] = React.useState(40)
   const [dateWidth, setDateWidth] = React.useState(96)
-  const dateHead = React.useCallback((node: HTMLTableCellElement | null) => {
-    if (node) setDateWidth(node.getBoundingClientRect().width)
+
+  const tickHead = React.useRef<HTMLTableCellElement | null>(null)
+  const dateHead = React.useRef<HTMLTableCellElement | null>(null)
+
+  React.useEffect(() => {
+    function measure() {
+      const tick = tickHead.current?.getBoundingClientRect().width ?? 0
+      const date = dateHead.current?.getBoundingClientRect().width ?? 0
+
+      if (tick > 0) setTickWidth(tick)
+      if (date > 0) setDateWidth(date)
+    }
+
+    measure()
+
+    const observer = new ResizeObserver(measure)
+    if (tickHead.current) observer.observe(tickHead.current)
+    if (dateHead.current) observer.observe(dateHead.current)
+
+    return () => observer.disconnect()
+    // The two header cells outlive every page of rows — the header is rendered
+    // whether or not the book has anything in it — so there is nothing to
+    // re-subscribe to.
   }, [])
 
-  /** `left` for the two pinned columns; every other column scrolls. */
+  /**
+   * `left` for the two pinned data columns; every other column scrolls. The
+   * tick column is pinned too and sits at 0, but it is rendered outside the
+   * `COLUMNS` map, so it sets its own offset rather than taking one from here.
+   */
   const stickyLeft = (index: number) =>
-    index === 0 ? { left: 0 } : index === 1 ? { left: dateWidth } : undefined
+    index === 0
+      ? { left: tickWidth }
+      : index === 1
+        ? { left: tickWidth + dateWidth }
+        : undefined
 
   const filtersApplied = query.q !== "" || query.filter !== "all"
 
@@ -370,6 +435,38 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
         cause instanceof ApiError
           ? cause.message
           : `Could not strike off the ${removed.truckNo} trip`
+      )
+    }
+  }
+
+  async function handleBulkDelete() {
+    const ids = selection.selected
+    if (ids.length === 0) return
+
+    setBulkOpen(false)
+
+    try {
+      const { deleted, requested } = await removeMany.mutateAsync(ids)
+
+      // The refetch this kicks off changes the rows, which clears the ticks on
+      // its own — but that lands a moment later, and a bar still counting rows
+      // that have gone reads like the strike-off did not take.
+      selection.clear()
+
+      // Two figures came back, and they can differ: a trip struck off between
+      // the tick and the confirmation is one this request asked for and did
+      // not remove — and in this book the desk that struck it off need not
+      // even be in this office.
+      toast.success(
+        deleted === requested
+          ? `${deleted} ${deleted === 1 ? "trip" : "trips"} struck off`
+          : `${deleted} of ${requested} struck off — the rest had already gone`
+      )
+    } catch (cause) {
+      toast.error(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not strike off the selected trips"
       )
     }
   }
@@ -448,6 +545,16 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
 
       <TripFilters query={query} onPendingChange={setFiltersPending} />
 
+      <SelectionBar
+        count={selection.count}
+        noun="trip"
+        plural="trips"
+        action="Strike off selected"
+        pending={removeMany.isPending}
+        onClear={selection.clear}
+        onDelete={() => setBulkOpen(true)}
+      />
+
       {/* Totals sit above the spread — a footer row 22 columns wide would be
           off the side of the screen the moment anyone scrolled. They are of
           everything the filters match, not of the rows on this page. */}
@@ -483,14 +590,29 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
           {trips.length === 0 ? (
             <Card className="px-4 py-8 text-center">{emptyState}</Card>
           ) : (
-            trips.map((trip) => (
-              <TripCard
-                key={trip.id}
-                trip={trip}
-                onEdit={() => setForm({ open: true, editing: trip })}
-                onDelete={() => setPendingDelete(trip)}
-              />
-            ))
+            <>
+              {/* The spread puts this box at the top of the tick column. The
+                  cards have no header to put it in, so it gets a line of its
+                  own — without it a phone can tick rows one at a time and
+                  never all of them. */}
+              <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                <SelectAllBox
+                  selection={selection}
+                  label="Select every trip on this page"
+                />
+                Select all on this page
+              </label>
+
+              {trips.map((trip) => (
+                <TripCard
+                  key={trip.id}
+                  trip={trip}
+                  selection={selection}
+                  onEdit={() => setForm({ open: true, editing: trip })}
+                  onDelete={() => setPendingDelete(trip)}
+                />
+              ))}
+            </>
           )}
         </div>
 
@@ -501,6 +623,8 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
           <Table aria-busy={busy}>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
+                {/* Above the tick column, which belongs to no group. */}
+                <TableHead className="w-10" />
                 {GROUPS.map(([label, span]) => (
                   <TableHead
                     key={label}
@@ -513,6 +637,17 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
                 <TableHead className="w-10" />
               </TableRow>
               <TableRow className="hover:bg-transparent">
+                <TableHead
+                  ref={tickHead}
+                  style={{ left: 0 }}
+                  className={cn(stickyCell, "z-20 w-10")}
+                >
+                  <SelectAllBox
+                    selection={selection}
+                    label="Select every trip on this page"
+                    disabled={trips.length === 0}
+                  />
+                </TableHead>
                 {COLUMNS.map((column, index) => (
                   <TableHead
                     key={column}
@@ -535,7 +670,7 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
               {trips.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
                   <TableCell
-                    colSpan={COLUMNS.length + 1}
+                    colSpan={COLUMNS.length + 2}
                     className="h-28 text-center"
                   >
                     {emptyState}
@@ -543,7 +678,23 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
                 </TableRow>
               ) : (
                 trips.map((trip) => (
-                  <TableRow key={trip.id} className="group/row">
+                  <TableRow
+                    key={trip.id}
+                    className="group/row"
+                    data-state={
+                      selection.isSelected(trip.id) ? "selected" : undefined
+                    }
+                  >
+                    <TableCell
+                      style={{ left: 0 }}
+                      className={cn(stickyCell, "z-10 w-10")}
+                    >
+                      <SelectRowBox
+                        selection={selection}
+                        id={trip.id}
+                        label={`Select the ${trip.truckNo} trip`}
+                      />
+                    </TableCell>
                     {cells(trip).map((value, index) => (
                       <TableCell
                         key={COLUMNS[index]}
@@ -602,6 +753,41 @@ export function TripRegister({ query }: { query: RegisterQuery }) {
         editing={form.editing}
         onSave={handleSave}
       />
+
+      {/* Its own dialog rather than the one below dressed up: the wording is
+          about a set of rows the clerk cannot re-read at this point, so it
+          names the count and says what it takes with it. */}
+      <AlertDialog
+        open={bulkOpen}
+        onOpenChange={(open) => {
+          if (!open) setBulkOpen(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Strike off {selection.count}{" "}
+              {selection.count === 1 ? "trip" : "trips"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes{" "}
+              {selection.count === 1 ? "the ticked row" : "every ticked row"}{" "}
+              from the daybook, and it cannot be undone. Both firms work this
+              one book, so it goes for everyone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep them</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={removeMany.isPending}
+              onClick={() => void handleBulkDelete()}
+            >
+              Strike {selection.count === 1 ? "it" : "them"} off
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pendingDelete !== null}

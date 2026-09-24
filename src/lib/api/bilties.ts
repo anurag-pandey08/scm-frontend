@@ -8,6 +8,10 @@ import {
   type BiltyInput,
   type BiltyPage,
 } from "@/lib/schemas/bilty"
+import {
+  bulkDeleteResultSchema,
+  type BulkDeleteResult,
+} from "@/lib/schemas/bulk-delete"
 import type { Bilty } from "@/lib/types"
 
 /**
@@ -161,4 +165,26 @@ export async function deleteBilty(
     `${bookPath(company)}/${encodeURIComponent(id)}`,
     { method: "DELETE" }
   )
+}
+
+/**
+ * The bilties the clerk ticked, in one request.
+ *
+ * A POST with the list in the body rather than a DELETE carrying one: a DELETE
+ * body is allowed by the spec and dropped by plenty of things in front of an
+ * API, and a delete that quietly arrives with no list is not a failure worth
+ * risking. The path says what the POST does.
+ *
+ * What comes back is how many rows actually went, which can be short of the
+ * list — see `bulkDeleteResultSchema`.
+ */
+export async function deleteBilties(
+  company: CompanySlug,
+  ids: string[]
+): Promise<BulkDeleteResult> {
+  const data = await apiFetch<unknown>(`${bookPath(company)}/bulk-delete`, {
+    method: "POST",
+    body: { ids },
+  })
+  return bulkDeleteResultSchema.parse(data)
 }

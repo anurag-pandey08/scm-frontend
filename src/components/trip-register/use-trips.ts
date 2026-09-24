@@ -10,6 +10,7 @@ import {
 import {
   createTrip,
   deleteTrip,
+  deleteTrips,
   fetchTrips,
   tripKeys,
   updateTrip,
@@ -42,7 +43,7 @@ export function useTripPage(query: RegisterQuery) {
 /**
  * Entering, amending and striking off.
  *
- * All three invalidate the whole daybook rather than patching the page in
+ * All four invalidate the whole daybook rather than patching the page in
  * place. The book is sorted, filtered, paginated and totalled by Postgres, so
  * a saved trip can land on another page, drop out of the current filter, or
  * change one of the five figures above the spread — none of which the client
@@ -70,7 +71,16 @@ export function useTripMutations() {
     onSuccess: refreshBook,
   })
 
-  return { create, update, remove }
+  // The ticked rows, in one request rather than one request each. A loop would
+  // leave the daybook half struck off if the fourth call failed — and this is
+  // the book both offices work, so a half-finished strike-off is a half-
+  // finished strike-off for everyone.
+  const removeMany = useMutation({
+    mutationFn: (ids: string[]) => deleteTrips(ids),
+    onSuccess: refreshBook,
+  })
+
+  return { create, update, remove, removeMany }
 }
 
 /** An empty page, for rendering the ledger before the first answer lands. */

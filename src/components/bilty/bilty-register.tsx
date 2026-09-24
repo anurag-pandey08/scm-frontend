@@ -24,6 +24,12 @@ import {
 } from "@/components/bilty/use-bilties"
 import { useCompany } from "@/components/company-provider"
 import {
+  SelectAllBox,
+  SelectionBar,
+  SelectRowBox,
+  useRowSelection,
+} from "@/components/register-selection"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -76,9 +82,12 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
   const company = useCompany()
 
   const { data, isFetching, isError, error } = useBiltyPage(company.slug, query)
-  const { create, update, remove } = useBiltyMutations(company.slug)
+  const { create, update, remove, removeMany } = useBiltyMutations(company.slug)
 
   const { bilties, meta } = data ?? EMPTY_PAGE
+
+  // The ticked rows, scoped to the page on screen — see `useRowSelection`.
+  const selection = useRowSelection(bilties)
 
   // Filtering and paging are navigations before they are queries — the URL is
   // rewritten and the page re-fetched on the server — so the register has to
@@ -87,7 +96,7 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
   const [pagePending, setPagePending] = React.useState(false)
 
   const saving = create.isPending || update.isPending
-  const deleting = remove.isPending
+  const deleting = remove.isPending || removeMany.isPending
 
   // One loader for everything that leaves the rows on screen out of date:
   // a search, a filter, a page turn, a save, a deletion, and the refetch each
@@ -95,9 +104,11 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
   const busy = isFetching || filtersPending || pagePending || saving || deleting
   const busyLabel = saving
     ? "Saving bilty…"
-    : deleting
-      ? "Deleting bilty…"
-      : "Fetching bilties…"
+    : removeMany.isPending
+      ? "Deleting bilties…"
+      : remove.isPending
+        ? "Deleting bilty…"
+        : "Fetching bilties…"
 
   const [form, setForm] = React.useState<{
     open: boolean
@@ -110,6 +121,7 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
   const [lr, setLr] = React.useState<Bilty | null>(null)
   const [lrOpen, setLrOpen] = React.useState(false)
   const [pendingDelete, setPendingDelete] = React.useState<Bilty | null>(null)
+  const [bulkOpen, setBulkOpen] = React.useState(false)
 
   const filtersApplied =
     query.q !== "" || query.status !== "all" || query.payment !== "all"
@@ -150,6 +162,38 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
     }
   }
 
+  async function handleBulkDelete() {
+    const ids = selection.selected
+    if (ids.length === 0) return
+
+    setBulkOpen(false)
+
+    try {
+      const { deleted, requested } = await removeMany.mutateAsync(ids)
+
+      // The refetch this kicks off changes the rows, which clears the ticks on
+      // its own — but that lands a moment later, and a bar still counting rows
+      // that have gone reads like the deletion did not take.
+      selection.clear()
+
+      // Two figures came back, and they can differ: a bilty struck out at the
+      // next desk between the tick and the confirmation is one this request
+      // asked for and did not remove. Saying so is better than reporting a
+      // number the register did not act on.
+      toast.success(
+        deleted === requested
+          ? `${deleted} ${deleted === 1 ? "bilty" : "bilties"} deleted`
+          : `${deleted} of ${requested} deleted — the rest had already gone`
+      )
+    } catch (cause) {
+      toast.error(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not delete the selected bilties"
+      )
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -169,6 +213,16 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
 
       <BiltyFilters query={query} onPendingChange={setFiltersPending} />
 
+      <SelectionBar
+        count={selection.count}
+        noun="bilty"
+        plural="bilties"
+        action="Delete selected"
+        pending={removeMany.isPending}
+        onClear={selection.clear}
+        onDelete={() => setBulkOpen(true)}
+      />
+
       {/* Covered rather than emptied while the next page is fetched — the rows
           on screen are still the right answer to the previous question, and
           blanking them makes every filter change look like a reload.
@@ -181,6 +235,13 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
           <Table aria-busy={busy}>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <SelectAllBox
+                    selection={selection}
+                    label="Select every bilty on this page"
+                    disabled={bilties.length === 0}
+                  />
+                </TableHead>
                 <TableHead>L.R. No.</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Route</TableHead>
@@ -197,7 +258,7 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
             <TableBody>
               {bilties.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={10} className="h-28 text-center">
+                  <TableCell colSpan={11} className="h-28 text-center">
                     <p className="text-sm font-medium">
                       {isError
                         ? "Could not read the register"
@@ -216,7 +277,19 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
                 </TableRow>
               ) : (
                 bilties.map((bilty) => (
-                  <TableRow key={bilty.id}>
+                  <TableRow
+                    key={bilty.id}
+                    data-state={
+                      selection.isSelected(bilty.id) ? "selected" : undefined
+                    }
+                  >
+                    <TableCell>
+                      <SelectRowBox
+                        selection={selection}
+                        id={bilty.id}
+                        label={`Select bilty ${bilty.lrNo}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium tabular-nums">
                       {bilty.lrNo}
                     </TableCell>
@@ -309,7 +382,7 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
                   {/* The totals are of everything the filters match, not of the
                     rows on this page — a clerk filtering to one party's To Pay
                     consignments wants what that party owes altogether. */}
-                  <TableCell colSpan={8}>
+                  <TableCell colSpan={9}>
                     {formatNumber(meta.total)} of {formatNumber(meta.bookTotal)}{" "}
                     bilties · balance to collect{" "}
                     <span className="tabular-nums">
@@ -364,6 +437,44 @@ export function BiltyRegister({ query }: { query: RegisterQuery }) {
         onOpenChange={setDetailOpen}
         onEdit={(bilty) => setForm({ open: true, editing: bilty })}
       />
+
+      {/* Its own dialog rather than the one below dressed up: the wording is
+          about a set of rows the clerk cannot re-read at this point, so it
+          names the count and says what it takes with it. */}
+      <AlertDialog
+        open={bulkOpen}
+        onOpenChange={(open) => {
+          if (!open) setBulkOpen(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selection.count}{" "}
+              {selection.count === 1 ? "bilty" : "bilties"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes{" "}
+              {selection.count === 1
+                ? "the ticked entry"
+                : "every ticked entry"}{" "}
+              from the register, for every desk, and it cannot be undone. If a
+              consignment was actually called off, mark it Cancelled instead so
+              the L.R. numbering stays unbroken.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep them</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={removeMany.isPending}
+              onClick={() => void handleBulkDelete()}
+            >
+              Delete {selection.count === 1 ? "bilty" : "bilties"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pendingDelete !== null}

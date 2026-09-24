@@ -23,6 +23,12 @@ import {
 } from "@/components/invoice/use-invoices"
 import { useCompany } from "@/components/company-provider"
 import {
+  SelectAllBox,
+  SelectionBar,
+  SelectRowBox,
+  useRowSelection,
+} from "@/components/register-selection"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -78,9 +84,14 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
     company.slug,
     query
   )
-  const { create, update, remove } = useInvoiceMutations(company.slug)
+  const { create, update, remove, removeMany } = useInvoiceMutations(
+    company.slug
+  )
 
   const { invoices, meta } = data ?? EMPTY_PAGE
+
+  // The ticked rows, scoped to the page on screen — see `useRowSelection`.
+  const selection = useRowSelection(invoices)
 
   const [form, setForm] = React.useState<{
     open: boolean
@@ -91,6 +102,7 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
   const [bill, setBill] = React.useState<Invoice | null>(null)
   const [billOpen, setBillOpen] = React.useState(false)
   const [pendingDelete, setPendingDelete] = React.useState<Invoice | null>(null)
+  const [bulkOpen, setBulkOpen] = React.useState(false)
 
   // Filtering and paging are navigations before they are queries — the URL is
   // rewritten and the page re-fetched on the server — so the book has to hear
@@ -99,7 +111,7 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
   const [pagePending, setPagePending] = React.useState(false)
 
   const saving = create.isPending || update.isPending
-  const deleting = remove.isPending
+  const deleting = remove.isPending || removeMany.isPending
 
   // One loader for everything that leaves the rows on screen out of date: a
   // search, a filter, a page turn, a save, a deletion, and the refetch each
@@ -107,9 +119,11 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
   const busy = isFetching || filtersPending || pagePending || saving || deleting
   const busyLabel = saving
     ? "Saving bill…"
-    : deleting
-      ? "Deleting bill…"
-      : "Fetching bills…"
+    : removeMany.isPending
+      ? "Deleting bills…"
+      : remove.isPending
+        ? "Deleting bill…"
+        : "Fetching bills…"
 
   const filtersApplied = query.q !== "" || query.status !== "all"
 
@@ -149,6 +163,38 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
     }
   }
 
+  async function handleBulkDelete() {
+    const ids = selection.selected
+    if (ids.length === 0) return
+
+    setBulkOpen(false)
+
+    try {
+      const { deleted, requested } = await removeMany.mutateAsync(ids)
+
+      // The refetch this kicks off changes the rows, which clears the ticks on
+      // its own — but that lands a moment later, and a bar still counting rows
+      // that have gone reads like the deletion did not take.
+      selection.clear()
+
+      // Two figures came back, and they can differ: a bill deleted at the next
+      // desk between the tick and the confirmation is one this request asked
+      // for and did not remove. Saying so is better than reporting a number
+      // the book did not act on.
+      toast.success(
+        deleted === requested
+          ? `${deleted} ${deleted === 1 ? "bill" : "bills"} deleted`
+          : `${deleted} of ${requested} deleted — the rest had already gone`
+      )
+    } catch (cause) {
+      toast.error(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not delete the selected bills"
+      )
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -167,6 +213,16 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
 
       <InvoiceFilters query={query} onPendingChange={setFiltersPending} />
 
+      <SelectionBar
+        count={selection.count}
+        noun="bill"
+        plural="bills"
+        action="Delete selected"
+        pending={removeMany.isPending}
+        onClear={selection.clear}
+        onDelete={() => setBulkOpen(true)}
+      />
+
       {/* Covered rather than emptied while the next page is fetched — the rows
           on screen are still the right answer to the previous question, and
           blanking them makes every filter change look like a reload.
@@ -179,6 +235,13 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
           <Table aria-busy={busy}>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <SelectAllBox
+                    selection={selection}
+                    label="Select every bill on this page"
+                    disabled={invoices.length === 0}
+                  />
+                </TableHead>
                 <TableHead>Bill No.</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>M/s</TableHead>
@@ -193,7 +256,7 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
             <TableBody>
               {invoices.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={8} className="h-28 text-center">
+                  <TableCell colSpan={9} className="h-28 text-center">
                     <p className="text-sm font-medium">
                       {isError
                         ? "Could not read the bill book"
@@ -214,7 +277,21 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
                 invoices.map((invoice) => {
                   const challans = billedChallans(invoice)
                   return (
-                    <TableRow key={invoice.id}>
+                    <TableRow
+                      key={invoice.id}
+                      data-state={
+                        selection.isSelected(invoice.id)
+                          ? "selected"
+                          : undefined
+                      }
+                    >
+                      <TableCell>
+                        <SelectRowBox
+                          selection={selection}
+                          id={invoice.id}
+                          label={`Select bill ${invoice.billNo}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium tabular-nums">
                         {invoice.billNo}
                       </TableCell>
@@ -288,7 +365,7 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
                   {/* The totals are of everything the filters match, not of the
                       rows on this page — a clerk filtering to one party's
                       raised bills wants what that party owes altogether. */}
-                  <TableCell colSpan={6}>
+                  <TableCell colSpan={7}>
                     {formatNumber(meta.total)} of {formatNumber(meta.bookTotal)}{" "}
                     bills · outstanding{" "}
                     <span className="tabular-nums">
@@ -341,6 +418,43 @@ export function InvoiceRegister({ query }: { query: BillBookQuery }) {
         onOpenChange={setBillOpen}
         onEdit={(invoice) => setForm({ open: true, editing: invoice })}
       />
+
+      {/* Its own dialog rather than the one below dressed up: the wording is
+          about a set of rows the clerk cannot re-read at this point, so it
+          names the count and says what it takes with it. */}
+      <AlertDialog
+        open={bulkOpen}
+        onOpenChange={(open) => {
+          if (!open) setBulkOpen(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selection.count}{" "}
+              {selection.count === 1 ? "bill" : "bills"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes{" "}
+              {selection.count === 1 ? "the ticked bill" : "every ticked bill"}{" "}
+              from the book, charge column and all, for every desk, and it
+              cannot be undone. If a party was billed and the bill was then
+              withdrawn, mark it Cancelled instead so the numbering stays
+              unbroken.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep them</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={removeMany.isPending}
+              onClick={() => void handleBulkDelete()}
+            >
+              Delete {selection.count === 1 ? "bill" : "bills"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pendingDelete !== null}
