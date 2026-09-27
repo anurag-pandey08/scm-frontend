@@ -37,7 +37,9 @@ import {
 import {
   REGISTER_ORIGIN,
   tripFreight,
+  tripPartyStanding,
   tripReceived,
+  type PartyStanding,
   type Trip,
 } from "@/lib/trip-register-types"
 import { cn } from "@/lib/utils"
@@ -273,6 +275,12 @@ function DateFieldControl({
   )
 }
 
+const STANDING_LABEL: Record<PartyStanding["kind"], string> = {
+  due: "Due from party",
+  excess: "Excess from party",
+  settled: "Due",
+}
+
 /** Today, as the clerk would write it. */
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -334,11 +342,13 @@ export function TripFormDialog({
   const balanceReceiveRs = useWatch({ control, name: "balanceReceiveRs" })
 
   const freight = tripFreight({ rate: rate || 0, weight: weight || 0 })
-  const received = tripReceived({
+  const partyMoney = {
+    partyPayment: partyPayment || 0,
     advanceReceiveRs: advanceReceiveRs || 0,
     balanceReceiveRs: balanceReceiveRs || 0,
-  })
-  const due = (partyPayment || 0) - received
+  }
+  const received = tripReceived(partyMoney)
+  const standing = tripPartyStanding(partyMoney)
 
   /**
    * Rate × weight is the hire the two lorry columns are drawn against, so the
@@ -560,12 +570,19 @@ export function TripFormDialog({
                   <dd className="tabular-nums">{formatINR(received)}</dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="font-medium">Due</dt>
+                  <dt className="font-medium">
+                    {STANDING_LABEL[standing.kind]}
+                  </dt>
                   <dd className="font-semibold tabular-nums">
-                    {formatINR(due)}
+                    {formatINR(standing.amount)}
                   </dd>
                 </div>
               </dl>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {standing.kind === "excess"
+                  ? "Paid over the bill — held for the party"
+                  : "Receipts above the party payment count as excess"}
+              </p>
             </div>
           </Section>
 

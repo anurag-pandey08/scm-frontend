@@ -58,8 +58,8 @@ import type { RegisterQuery } from "@/lib/api/trips"
 import { formatDateNumeric, formatINR, formatNumber } from "@/lib/format"
 import type { TripInput } from "@/lib/schemas/trip"
 import {
-  tripDueFromParty,
   tripFreight,
+  tripPartyStanding,
   type Trip,
 } from "@/lib/trip-register-types"
 import { cn } from "@/lib/utils"
@@ -219,7 +219,7 @@ function TripCard({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const dueFromParty = Math.max(0, tripDueFromParty(trip))
+  const party = tripPartyStanding(trip)
   const dueToLorry = trip.paidDate ? 0 : trip.balance
 
   return (
@@ -278,9 +278,11 @@ function TripCard({
           value={trip.commission ? formatINR(trip.commission) : "—"}
         />
         <CardField
-          label="Party still owes"
+          label={
+            party.kind === "excess" ? "Excess from party" : "Party still owes"
+          }
           strong
-          value={dueFromParty ? formatINR(dueFromParty) : "Settled"}
+          value={party.kind === "settled" ? "Settled" : formatINR(party.amount)}
         />
         <CardField
           label="Lorry still to be paid"
