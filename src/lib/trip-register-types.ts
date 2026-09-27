@@ -114,3 +114,32 @@ export function tripDueFromParty(trip: {
 }): number {
   return trip.partyPayment - tripReceived(trip)
 }
+
+/**
+ * Which way the party's account on a trip stands, and by how much.
+ *
+ * A party usually still owes part of its bill. Now and then it pays over it
+ * instead — rounding up, paying ahead, covering a charge the bill never
+ * carried — and that excess is money the office is holding for the party, not
+ * a due with a minus sign in front of it.
+ *
+ * Nothing is entered to say which way it runs: it follows from the receipts.
+ * Take in more than the party payment and the trip reads as an excess.
+ */
+export type PartyStanding =
+  | { kind: "due"; amount: number }
+  | { kind: "excess"; amount: number }
+  | { kind: "settled"; amount: 0 }
+
+export function tripPartyStanding(trip: {
+  partyPayment: number
+  advanceReceiveRs: number
+  balanceReceiveRs: number
+}): PartyStanding {
+  // To the paisa, so two receipts that add up to the bill do not leave a
+  // floating-point sliver showing as due or excess.
+  const due = Math.round(tripDueFromParty(trip) * 100) / 100
+  if (due > 0) return { kind: "due", amount: due }
+  if (due < 0) return { kind: "excess", amount: -due }
+  return { kind: "settled", amount: 0 }
+}
